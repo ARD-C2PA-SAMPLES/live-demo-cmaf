@@ -31,7 +31,7 @@ def flatten(items):
 
 # fixed options
 FFMPEG = ["ffmpeg"]
-MOVFLAGS = "frag_every_frame+empty_moov+separate_moof+default_base_moof"
+MOVFLAGS = "empty_moov+separate_moof+default_base_moof+frag_discont+cmaf"
 ALL_TRACK_OPTS = [
     "-fflags", "genpts",
     "-write_prft", "pts",
@@ -136,7 +136,7 @@ logger.debug(f"now_frames {now_frames}")
 logger.debug(f"now {now}")
 logger.debug(f"float(now) {float(now)}")
 logger.debug(f"now_seconds {now_seconds}")
-logger.debug(f"now_micro {now_micro}")
+logger.debug(f"now_micro {now_micro:06d}")
 logger.debug(f"audio_delay {audio_delay}")
 logger.debug(f"video_offset {video_offset}")
 logger.debug(f"audio_offset {audio_offset}")
@@ -153,29 +153,21 @@ smptebars = [
 
 # build the filter
 filter_complex = f"""
-[0]drawbox=
-y=25: x=iw/2-iw/7: c=0x00000000@1: w=iw/3.5: h=36: t=fill,
-drawtext=timecode_rate={max_framerate_int}: timecode='{now_timecode}\\:{now_frames}'" : tc24hmax=1: fontsize=32: x=(w-tw)/2+tw/2: y=30: fontcolor=white,
-drawtext=text='%{{pts\:gmtime\:{now_seconds}\:%Y-%m-%d}}\ ': fontsize=32: x=(w-tw)/2-tw/2: y=30: fontcolor=white,
+[0]realtime,
+drawtext=box=1:boxcolor=black:boxborderw=1:timecode_rate={max_framerate_int}: timecode='{now_timecode}\\:{now_frames}'" : tc24hmax=1: fontsize=h/25: x=(w-tw)/2+tw/2: y=h/25: fontcolor=white,
+drawtext=box=1:boxcolor=black:boxborderw=1:text='%{{pts\:gmtime\:{now_seconds}\:%Y-%m-%d}}\ ': fontsize=h/25: x=(w-tw)/2-tw/2: y=h/25: fontcolor=white,
 drawtext=
     text='Live Media Ingest (CMAF)':
-    fontsize=32:
+    fontsize=h/25:
     x=(w-text_w)/2:
-    y=75:
-    fontcolor=white,
-drawtext=
-    text='Live Media Ingest (CMAF)':
-    fontsize=32:
-    x=(w-text_w)/2:
-    y=75:
-    fontsize=32:
+    y=h/25*2.5:
     fontcolor=white,
 drawtext=
     fontcolor=white:
-    fontsize=20:
-    text='Dual Encoder Sync - Active ContainerID {hostname}':
+    fontsize=h/40:
+    text='Active ContainerID {hostname}':
     x=(w-text_w)/2:
-    y=125
+    y=h/25*4
     [v];
 sine=frequency=1:beep_factor=480:sample_rate=48000,
 atempo=1,
@@ -193,54 +185,75 @@ color=size={max_width}x100:color=black[blackbg];
 [blackbg][waves]overlay[waves2];
 [v][waves2]overlay=y=620[v]
 {logo_filter}
-;[v]split={len(tracks["video"])}{"".join(["[v"+str(x)+"]" for x in range(1, len(tracks["video"])+1)])};
-[a]asplit={len(tracks["audio"])}{"".join(["[a"+str(x)+"]" for x in range(1, len(tracks["audio"])+1)])}
+;[v]setpts=N+{now_seconds}.{now_micro:06d}/TB,split={len(tracks["video"])}{"".join(["[v"+str(x)+"]" for x in range(1, len(tracks["video"])+1)])};
+[a]asetpts=N+1024+{now_seconds}.{now_micro:06d}/TB,asplit={len(tracks["audio"])}{"".join(["[a"+str(x)+"]" for x in range(1, len(tracks["audio"])+1)])}
 """
 
 command = [
     FFMPEG,
     "-nostats",
-    "-re",
     smptebars,
     logo_overlay,
-    "-filter_complex", filter_complex
+    "-filter_complex", filter_complex,
 ]
 
 # all the various outputs
 count = 0
 for video in tracks["video"]:
     count += 1
-    command.append([
+    command.extend([
         "-map", f"[v{count}]",
+        "-fps_mode", "passthrough",
         "-s", f"{video['width']}x{video['height']}",
-        "-c:v", str(video["codec"]),
+        "-c:v", "libx264",
         "-b:v", video["bitrate"],
-        "-profile:v", "main",
-        "-preset", "ultrafast",
+    ])
+    # insert optional options
+    if "preset" in video:
+        command.extend(["-preset", f"{video['preset']}"])
+    else:
+        command.extend(["-preset", "superfast"])
+    if "profile" in video:
+        command.extend(["-profile:v", f"{video['profile']}"])
+    if "level" in video:
+        command.extend(["-level", f"{video['level']}"])
+    if "x264-params" in video:
+        command.extend(["-x264-params", f"{video['x264-params']}"])
+    command.extend([
         "-tune", "zerolatency",
         "-g", str(video["gop"]),
-        "-r", str(video["framerate"]),
-        "-ism_offset", str(video_offset),
+        # "-r", str(video["framerate"]),
         "-video_track_timescale", str(video["timescale"]),
         ALL_TRACK_OPTS,
-        f"{pub_point_uri}/Streams(video-{video['width']}x{video['height']}-{video['bitrate']}.cmfv)"
     ])
+    if "name" in video:
+        command.extend([f"{pub_point_uri}/Streams({video['name']})"])
+    else:
+        command.extend([f"{pub_point_uri}/Streams(video_{video['width']}x{video['height']}_{video['bitrate']}.cmfv)"])
 
 count = 0
 for audio in tracks["audio"]:
+    if "channels" in audio:
+        channels = str(audio["channels"])
+    else:
+        channels = "1"
     count += 1
-    command.append([
+    command.extend([
         "-map", f"[a{count}]",
-        "-c:a", str(audio["codec"]),
+        "-c:a", "aac",
         "-b:a", str(audio["bitrate"]),
         "-ar", str(audio["samplerate"]),
+        "-ac", channels,
         "-metadata:s:a:0", f"language={audio['language']}",
-        "-ism_offset", str(audio_offset),
         "-audio_track_timescale", str(audio["timescale"]),
+        "-frag_duration", str(audio["frag_duration_micros"]),
         ALL_TRACK_OPTS,
-        f"{pub_point_uri}/Streams(audio-{audio['language']}-{audio['bitrate']}.cmfa)"
     ])
+    if "name" in audio:
+        command.extend([f"{pub_point_uri}/Streams({audio['name']})"])
+    else:
+        command.extend([f"{pub_point_uri}/Streams(audio_{audio['language']}_{audio['bitrate']}.cmfa)"])
 
-logger.info(f"ffmpeg command: {list(flatten(command))}")
+logger.debug(f"ffmpeg command: {list(flatten(command))}")
 
 subprocess.run(list(flatten(command)))

@@ -13,6 +13,8 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+    networks:
+      - default
   ffmpeg-1:
     build: ffmpeg
     environment:
@@ -21,6 +23,8 @@ services:
     depends_on:
       live-origin:
         condition: service_healthy
+    networks:
+      - default
   ffmpeg-2:
     build: ffmpeg
     environment:
@@ -29,3 +33,7 @@ services:
     depends_on:
       live-origin:
         condition: service_healthy
+    networks:
+      - default
+
+

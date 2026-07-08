@@ -49,6 +49,7 @@ else:
 hostname = os.environ["HOSTNAME"] if "HOSTNAME" in os.environ else "ffmpeg"
 frame_rate = os.environ["FRAME_RATE"] if "FRAME_RATE" in os.environ else "25"
 gop_length = os.environ["GOP_LENGTH"] if "GOP_LENGTH" in os.environ else "24"
+rtmp_url = os.environ["RTMP_URL"] if "RTMP_URL" in os.environ else "rtmp://0.0.0.0:1935/live/stream"
 
 logo_overlay = os.environ["LOGO_OVERLAY"] if "LOGO_OVERLAY" in os.environ else "https://raw.githubusercontent.com/unifiedstreaming/live-demo/master/ffmpeg/usp_logo_white.png"
 logo_filter = ""
@@ -117,8 +118,6 @@ now = Fraction(
 now_seconds = int(now)
 now_micro = int(now % 1 * 1000000)
 
-audio_delay = int((1000000 - now_micro)/1000)
-
 video_offset = int(tracks["video"][0]["timescale"] * now)
 audio_offset = int(tracks["audio"][0]["timescale"] * now)
 
@@ -137,7 +136,6 @@ logger.debug(f"now {now}")
 logger.debug(f"float(now) {float(now)}")
 logger.debug(f"now_seconds {now_seconds}")
 logger.debug(f"now_micro {now_micro:06d}")
-logger.debug(f"audio_delay {audio_delay}")
 logger.debug(f"video_offset {video_offset}")
 logger.debug(f"audio_offset {audio_offset}")
 logger.debug(f"now_mod_days {now_mod_days}")
@@ -145,15 +143,19 @@ logger.debug(f"float(now_mod_days) {float(now_mod_days)}")
 
 # build the stupid command
 
-# input smptebars
-smptebars = [
-    "-f", "lavfi",
-    "-i", f"smptehdbars=size={max_width}x{max_height}:rate={max_framerate}"
+# input rtmp stream, listen for an incoming encoder connection
+rtmp_input = [
+    "-listen", "1",
+    "-fflags", "+genpts",
+    "-i", rtmp_url,
 ]
 
 # build the filter
 filter_complex = f"""
-[0]realtime,
+[0:v]fps={max_framerate},
+scale={max_width}:{max_height}:force_original_aspect_ratio=decrease,
+pad={max_width}:{max_height}:(ow-iw)/2:(oh-ih)/2,
+setsar=1,
 drawtext=box=1:boxcolor=black:boxborderw=1:timecode_rate={max_framerate_int}: timecode='{now_timecode}\\:{now_frames}'" : tc24hmax=1: fontsize=h/25: x=(w-tw)/2+tw/2: y=h/25: fontcolor=white,
 drawtext=box=1:boxcolor=black:boxborderw=1:text='%{{pts\:gmtime\:{now_seconds}\:%Y-%m-%d}}\ ': fontsize=h/25: x=(w-tw)/2-tw/2: y=h/25: fontcolor=white,
 drawtext=
@@ -169,10 +171,7 @@ drawtext=
     x=(w-text_w)/2:
     y=h/25*4
     [v];
-sine=frequency=1:beep_factor=480:sample_rate=48000,
-atempo=1,
-adelay={audio_delay},
-highpass=40,
+[0:a]aresample={tracks["audio"][0]["samplerate"]}:async=1,
 asplit=2[a][a_waves];
 [a_waves]showwaves=
     mode=p2p:
@@ -182,8 +181,8 @@ asplit=2[a][a_waves];
     rate={max_framerate}
 [waves];
 color=size={max_width}x100:color=black[blackbg];
-[blackbg][waves]overlay[waves2];
-[v][waves2]overlay=y=620[v]
+[blackbg][waves]overlay=shortest=1[waves2];
+[v][waves2]overlay=y=620:shortest=1[v]
 {logo_filter}
 ;[v]setpts=N+{now_seconds}.{now_micro:06d}/TB,split={len(tracks["video"])}{"".join(["[v"+str(x)+"]" for x in range(1, len(tracks["video"])+1)])};
 [a]asetpts=N+1024+{now_seconds}.{now_micro:06d}/TB,asplit={len(tracks["audio"])}{"".join(["[a"+str(x)+"]" for x in range(1, len(tracks["audio"])+1)])}
@@ -192,7 +191,7 @@ color=size={max_width}x100:color=black[blackbg];
 command = [
     FFMPEG,
     "-nostats",
-    smptebars,
+    rtmp_input,
     logo_overlay,
     "-filter_complex", filter_complex,
 ]

@@ -73,7 +73,7 @@ if [ "$AIX_FILE" ]
   if [ ! -f "$AIX_FILE" ]
     then
       echo >&2 "Warning: AIX_FILE=$AIX_FILE not found, publishing point will NOT be C2PA signed."
-  elif ! mp4split --show_license 2>/dev/null | grep -q "Media Authenticity: Yes"
+  elif ! mp4split --show_license 2>/dev/null | grep "Media Authenticity:" | grep -qv ": No"
     then
       echo >&2 "Warning: license key has no Media Authenticity (beta) feature,"
       echo >&2 "         publishing point will NOT be C2PA signed."

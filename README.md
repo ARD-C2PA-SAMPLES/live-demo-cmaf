@@ -125,7 +125,7 @@ workflow (beta).
 > [support@unified-streaming.com](mailto:support@unified-streaming.com) to
 > get access. You can check your key with:
 > `docker exec live-demo-cmaf-live-origin-1 mp4split --show_license`
-> (look for `Media Authenticity: Yes`). The origin entrypoint checks this
+> (look for `Media Authenticity: Trusted Media`). The origin entrypoint checks this
 > at startup: without the feature it logs a warning and starts an
 > **unsigned** publishing point instead (forcing `--aix` without the
 > license would make every segment request fail with

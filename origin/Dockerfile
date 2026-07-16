@@ -5,12 +5,9 @@ FROM alpine:$ALPINEVERSION
 # ARGs declared before FROM are in a different scope, so need to be stated again
 # https://docs.docker.com/engine/reference/builder/#understand-how-arg-and-from-interact
 ARG ALPINEVERSION
-<<<<<<< Updated upstream
-ARG REPO=https://beta.apk.unified-streaming.com/alpine/
-=======
+
 ARG REPO=https://stable.apk.unified-streaming.com/alpine
-# 1.15.26+ required for Trusted Media (C2PA) --aix support
->>>>>>> Stashed changes
+
 ARG VERSION=1.15.26
 
 # Get USP public key

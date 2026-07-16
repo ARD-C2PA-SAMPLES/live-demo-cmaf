@@ -113,6 +113,65 @@ To get into origin container's shell:
 docker exec -it -w /var/www/unified-origin live-demo-cmaf-live-origin-1 /bin/sh
 ```
 
+## Trusted Media (C2PA)
+This demo signs the live stream with [C2PA](https://c2pa.org/) provenance
+metadata using the Unified Streaming
+[Trusted Media](https://docs.unified-streaming.com/tutorials/trusted-media/index.html)
+workflow (beta).
+
+> [!IMPORTANT]
+> Trusted Media requires a license key with the **Media Authenticity**
+> feature enabled. This feature is in beta, contact
+> [support@unified-streaming.com](mailto:support@unified-streaming.com) to
+> get access. You can check your key with:
+> `docker exec live-demo-cmaf-live-origin-1 mp4split --show_license`
+> (look for `Media Authenticity: Yes`). The origin entrypoint checks this
+> at startup: without the feature it logs a warning and starts an
+> **unsigned** publishing point instead (forcing `--aix` without the
+> license would make every segment request fail with
+> `FMP4_403 media_authenticity: no policy for trusted media`).
+
+### How it works
+1. `generate-certs-and-aix.sh` creates a self-signed certificate chain
+   (root → intermediate → leaf), a session key and assembles them into an
+   AIX (Authentication Information eXchange) document, `minimal.aix`, as
+   described in the tutorial:
+
+   ```
+   ./generate-certs-and-aix.sh
+   ```
+
+   The metadata assertions can be customized:
+
+   ```
+   AIX_TITLE="My Live Channel" AIX_PUBLISHER="My Broadcaster" ./generate-certs-and-aix.sh
+   ```
+
+2. `docker-compose.yaml` mounts `minimal.aix` into the origin container and
+   sets `AIX_FILE=/opt/aix/minimal.aix`.
+3. On startup the origin entrypoint verifies the license has
+   `Media Authenticity: Yes`, copies the AIX document next to the
+   publishing point and creates it with `--aix=minimal.aix`, so the server
+   manifest references the AIX document and Unified Origin signs the
+   stream during dynamic packaging (per request, the origin is stateless).
+   The DASH manifest then advertises the signature via
+   `<InbandEventStream schemeIdUri="urn:c2pa:verifiable-segment-info">`
+   and segments carry the C2PA manifests as inband `emsg` events.
+4. Apache denies external HTTP requests to `*.aix` (the document contains
+   private keys); only the origin's internal subrequests may read it.
+
+### Verify the signed stream
+Play the stream as usual (see Step 3) and validate provenance with the
+[C2PA validation player](https://c2pa-unified-streaming.qualabs.dev/)
+(the stream URL must be reachable from the internet for the hosted
+validator) or locally with [c2patool](https://github.com/contentauth/c2pa-rs)
+on a downloaded segment.
+
+> [!WARNING]
+> The generated certificates and `minimal.aix` contain private keys and are
+> for demo purposes only, they are ignored by git on purpose. For production
+> use a proper CA-issued signing certificate.
+
 ## What's next?
 [Learn more about the key features and benefits of using Unified Origin for live streaming](https://docs.unified-streaming.com/documentation/live/index.html)
 

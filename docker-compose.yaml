@@ -8,6 +8,11 @@ services:
       - PUB_POINT_NAME=channel1
       - LOG_LEVEL=warn
       - PUB_POINT_OPTS=--archiving=1 --archive_length=3600 --archive_segment_length=1800 --dvr_window_length=30 --restart_on_encoder_reconnect --mpd.min_buffer_time=48/25 --mpd.suggested_presentation_delay=48/25 --hls.minimum_fragment_length=48/25 --mpd.minimum_fragment_length=48/25 --mpd.segment_template=number_timeline --hls.client_manifest_version=4 --hls.fmp4
+      # Trusted Media (C2PA): AIX document used to sign the live stream,
+      # generate it with ./generate-certs-and-aix.sh (see README)
+      - AIX_FILE=/opt/aix/minimal.aix
+    volumes:
+      - ./minimal.aix:/opt/aix/minimal.aix:ro
     healthcheck:
       test: curl http://localhost/$$PUB_POINT_NAME/$$PUB_POINT_NAME.isml/state
       interval: 2s

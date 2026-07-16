@@ -167,6 +167,14 @@ Play the stream as usual (see Step 3) and validate provenance with the
 validator) or locally with [c2patool](https://github.com/contentauth/c2pa-rs)
 on a downloaded segment.
 
+For local verification a dash.js based C2PA player is available in the
+[C2PA Live Video Toolkit](https://github.com/ARD-C2PA-SAMPLES/c2pa-live-video-toolkit)
+under `c2pa-live-dashjs`: a static website that plays DASH live streams
+with real-time C2PA validation (interactive manifest tree, validation
+issues and per-segment status). Run it with `npm install && npm run build
+&& npm run serve` and open http://localhost:8090, then play
+`http://localhost/channel1/channel1.isml/.mpd`.
+
 > [!WARNING]
 > The generated certificates and `minimal.aix` contain private keys and are
 > for demo purposes only, they are ignored by git on purpose. For production

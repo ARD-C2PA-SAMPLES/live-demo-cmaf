@@ -366,6 +366,16 @@ function cawgSourceLabel(entry) {
   return parts.join(' · ');
 }
 
+// Long paths are shortened from the front, so that the distinguishing part
+// ("…referenced_assertions[1].hash") stays visible; the tooltip has the full key.
+const MAX_CAWG_KEY_CHARS = 22;
+
+function shortenCawgKey(key) {
+  return key.length <= MAX_CAWG_KEY_CHARS
+    ? key
+    : `…${key.slice(key.length - (MAX_CAWG_KEY_CHARS - 1))}`;
+}
+
 function buildCawgAssertion(assertion) {
   const wrap = document.createElement('div');
   wrap.className = 'cawg-assert';
@@ -380,7 +390,7 @@ function buildCawgAssertion(assertion) {
   for (const { key, value } of flattenAssertionData(assertion.data)) {
     const row = document.createElement('div');
     const dt = document.createElement('dt');
-    dt.textContent = key;
+    dt.textContent = shortenCawgKey(key);
     dt.title = key;
     const dd = document.createElement('dd');
     dd.textContent = value;

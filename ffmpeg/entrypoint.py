@@ -51,11 +51,14 @@ frame_rate = os.environ["FRAME_RATE"] if "FRAME_RATE" in os.environ else "25"
 gop_length = os.environ["GOP_LENGTH"] if "GOP_LENGTH" in os.environ else "24"
 rtmp_url = os.environ["RTMP_URL"] if "RTMP_URL" in os.environ else "rtmp://0.0.0.0:1935/live/stream"
 
-logo_overlay = os.environ["LOGO_OVERLAY"] if "LOGO_OVERLAY" in os.environ else "https://raw.githubusercontent.com/unifiedstreaming/live-demo/master/ffmpeg/usp_logo_white.png"
+# logo overlay is off by default, set LOGO_OVERLAY to a file/URL to enable it
+logo_overlay = os.environ["LOGO_OVERLAY"] if "LOGO_OVERLAY" in os.environ else ""
 logo_filter = ""
 if logo_overlay:
     logo_overlay = ["-i", logo_overlay]
     logo_filter = ";[v][1]overlay=eval=init:x=15:y=15[v]"
+else:
+    logo_overlay = []
 
 # defaults
 DEFAULT_TRACKS = {
@@ -171,18 +174,7 @@ drawtext=
     x=(w-text_w)/2:
     y=h/25*4
     [v];
-[0:a]aresample={tracks["audio"][0]["samplerate"]}:async=1,
-asplit=2[a][a_waves];
-[a_waves]showwaves=
-    mode=p2p:
-    colors=white:
-    size=1280x100:
-    scale=lin:
-    rate={max_framerate}
-[waves];
-color=size={max_width}x100:color=black[blackbg];
-[blackbg][waves]overlay=shortest=1[waves2];
-[v][waves2]overlay=y=620:shortest=1[v]
+[0:a]aresample={tracks["audio"][0]["samplerate"]}:async=1[a]
 {logo_filter}
 ;[v]setpts=N+{now_seconds}.{now_micro:06d}/TB,split={len(tracks["video"])}{"".join(["[v"+str(x)+"]" for x in range(1, len(tracks["video"])+1)])};
 [a]asetpts=N+1024+{now_seconds}.{now_micro:06d}/TB,asplit={len(tracks["audio"])}{"".join(["[a"+str(x)+"]" for x in range(1, len(tracks["audio"])+1)])}

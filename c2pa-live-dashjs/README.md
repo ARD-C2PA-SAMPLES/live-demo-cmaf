@@ -13,6 +13,12 @@ validation via [@qualabs/c2pa-live-dashjs-plugin](https://www.npmjs.com/package/
   expandable/collapsible, with a path display (`$.assertions[1].data.hash`), byte values
   rendered as hex, “Expand all / Collapse all”, “Copy JSON”, and throttleable live updates
   whenever the manifest changes
+- **CAWG section per segment**: the C2PA manifest box of *every* segment is read
+  directly from the segment bytes, and its `cawg.*` assertions
+  (`cawg.metadata` with `dc:title` / `dc:publisher` / `dc:rights`, `cawg.identity`
+  with `sig_type`, referenced assertions and signature) are shown as key/value
+  pairs — with a per-segment list that can be switched off (“Per segment”) and
+  “Copy CAWG JSON”
 - **Validation issues** with plain-text messages plus the original
   C2PA status codes (e.g. `claim.signature.mismatch`, `livevideo.segment.invalid`)
 - **Overall status display** (Valid / Warning / Invalid / Replay / Gap / Unverified),
@@ -77,6 +83,7 @@ styles.css          Dark monitoring theme
 app.bundle.js       Bundled app (esbuild; dash.js + plugin + UI code)
 src/
   main.js           Player setup, plugin events → UI (pill, counters, log, issues)
+  cawg.js           Reads the C2PA manifest box of a segment → cawg.* assertions
   json-tree.js      Interactive JSON tree (path-based expansion state)
   messages.js       Status labels and sequence-anomaly messages
   demo.js           Sample events/manifest for demo mode
@@ -102,6 +109,38 @@ Segment statuses reported by the plugin: `valid`, `invalid`, `replayed`,
 
 > **Gotcha in dashjs 5.x:** the ESM build of dashjs 5 has no working default
 > export — hence the named import `{ MediaPlayer }`.
+
+### CAWG per segment
+
+While a stream is validated via **VSI** (session keys in the init segment), the
+plugin only reports the manifest of the *init* segment — but signers such as
+Unified Origin put the CAWG assertions into the C2PA manifest box of every media
+segment. `src/cawg.js` therefore reads them straight from the segment bytes via
+an own dash.js response interceptor:
+
+```js
+player.addResponseInterceptor(async (response) => {
+  const box = extractC2paManifestBox(response.data); // uuid box, copied
+  if (box) queueMicrotask(() => {
+    const manifest = readManifestBox(box);           // JUMBF → c2pa.assertions
+    show(pickCawgAssertions(manifest.assertions));   // cawg.metadata, cawg.identity
+  });
+  return response;                                   // never delay the segment
+});
+```
+
+Only the C2PA box is copied out of the response (not the whole segment), and
+parsing happens outside the interceptor chain. It is purely structural — hash
+and signature validation stays with the plugin. The same data is what
+`c2patool -d` reports for an init segment concatenated with a media segment:
+
+```bash
+wget http://<origin>/channel1/channel1.isml/dash/video=1200000.dash
+wget http://<origin>/channel1/channel1.isml/dash/video=1200000-<time>.dash
+bbe -e 's/uuid/free/' video=1200000.dash > init.mp4   # blank out the init manifest
+cat init.mp4 video=1200000-<time>.dash > segment.mp4
+c2patool -d segment.mp4                               # → "cawg.metadata": { … }
+```
 
 ## Sources
 

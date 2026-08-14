@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@qualabs/c2pa-live-dashjs-plugin": "^1.2.0",
+    "cbor-x": "^1.6.4",
     "dashjs": "^5.2.0"
   },
   "devDependencies": {

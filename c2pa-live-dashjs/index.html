@@ -94,6 +94,30 @@
         </div>
       </div>
       <div id="manifestMeta" class="manifest-meta"></div>
+
+      <section class="cawg">
+        <div class="sub-head">
+          <h3>CAWG <span id="cawgCount" class="count-badge count-neutral" hidden>0</span></h3>
+          <div class="panel-actions">
+            <label class="chk"><input type="checkbox" id="chkCawgPerSegment" checked /> Per segment</label>
+            <button id="btnCopyCawg" class="btn btn-small">Copy CAWG JSON</button>
+          </div>
+        </div>
+        <div id="cawgEmpty" class="empty-state cawg-empty">
+          No CAWG assertions received yet.<br />
+          <small>CAWG data (<code>cawg.metadata</code>, <code>cawg.identity</code>) is read from the
+            C2PA manifest box of every segment.</small>
+        </div>
+        <div id="cawgBody" hidden>
+          <div id="cawgSource" class="cawg-source"></div>
+          <div id="cawgAssertions" class="cawg-assertions"></div>
+          <div id="cawgHistoryWrap" class="cawg-history-wrap">
+            <div class="cawg-history-head">Per segment <span id="cawgHistoryHint"></span></div>
+            <div id="cawgHistory" class="cawg-history"></div>
+          </div>
+        </div>
+      </section>
+
       <div id="manifestEmpty" class="empty-state">
         No C2PA manifest received yet.<br />
         <small>The manifest appears as soon as a signed init or media segment has been processed.</small>

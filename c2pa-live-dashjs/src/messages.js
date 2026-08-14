@@ -31,7 +31,10 @@ export const SEQUENCE_REASONS = {
   sequence_number_below_minimum: 'Sequence number below the session key minimum',
 };
 
+// The plugin only validates video and audio; text segments show up in the CAWG
+// section because their manifest box is read as well.
 export const MEDIA_TYPE_LABELS = {
   video: 'Video',
   audio: 'Audio',
+  text: 'Text',
 };

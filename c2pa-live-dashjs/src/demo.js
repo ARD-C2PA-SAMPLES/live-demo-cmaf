@@ -65,6 +65,34 @@ export function sampleManifest(seq) {
           ],
         },
       },
+      {
+        label: 'cawg.metadata',
+        data: {
+          '@context': { dc: 'http://purl.org/dc/elements/1.1/' },
+          'dc:publisher': 'C2PA Live Demo',
+          'dc:rights': 'Demo content, not for production use',
+          'dc:title': 'C2PA Live Demo (CMAF)',
+        },
+      },
+      {
+        label: 'cawg.identity',
+        data: {
+          signer_payload: {
+            sig_type: 'cawg.x509.cose',
+            referenced_assertions: [
+              {
+                url: 'self#jumbf=c2pa.assertions/c2pa.hash.bmff.v2',
+                hash: hexBytes('9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'),
+              },
+              {
+                url: 'self#jumbf=c2pa.assertions/cawg.metadata',
+                hash: hexBytes('60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752'),
+              },
+            ],
+          },
+          signature: hexBytes('d28459034fa20127045820'.repeat(8)),
+        },
+      },
     ],
   };
 }

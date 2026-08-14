@@ -4,6 +4,14 @@ import { MediaPlayer } from 'dashjs';
 import { attachC2pa, C2paEvent, ERROR_CODE_MESSAGES } from '@qualabs/c2pa-live-dashjs-plugin';
 import { createJsonTree, toPlainJson } from './json-tree.js';
 import {
+  extractC2paManifestBox,
+  readManifestBox,
+  pickCawgAssertions,
+  flattenAssertionData,
+  cawgSignature,
+  cawgSummaryLine,
+} from './cawg.js';
+import {
   STATUS_LABELS,
   STATUS_SEVERITY,
   SEQUENCE_REASONS,
@@ -17,6 +25,11 @@ const MAX_LOG_ENTRIES = 200;
 const MAX_PROBLEM_ENTRIES = 100;
 const MAX_STRIP_TICKS = 90;
 const MANIFEST_RENDER_MIN_INTERVAL_MS = 2500;
+const MAX_CAWG_ENTRIES = 60;
+const MAX_CAWG_KEYS = 800; // cap for the de-duplication set of already reported segments
+
+const SEGMENT_KINDS = { InitializationSegment: 'init', MediaSegment: 'media' };
+const SEGMENT_FILE_RE = /\.(?:m4s|mp4|cmf[vat]|dash)$/i;
 
 const $ = (id) => document.getElementById(id);
 
@@ -51,6 +64,16 @@ const els = {
   btnCollapseAll: $('btnCollapseAll'),
   btnCopyJson: $('btnCopyJson'),
   chkLiveUpdate: $('chkLiveUpdate'),
+  cawgCount: $('cawgCount'),
+  cawgEmpty: $('cawgEmpty'),
+  cawgBody: $('cawgBody'),
+  cawgSource: $('cawgSource'),
+  cawgAssertions: $('cawgAssertions'),
+  cawgHistory: $('cawgHistory'),
+  cawgHistoryWrap: $('cawgHistoryWrap'),
+  cawgHistoryHint: $('cawgHistoryHint'),
+  chkCawgPerSegment: $('chkCawgPerSegment'),
+  btnCopyCawg: $('btnCopyCawg'),
   problemsList: $('problemsList'),
   problemsEmpty: $('problemsEmpty'),
   problemsCount: $('problemsCount'),
@@ -66,6 +89,7 @@ const els = {
 
 let player = null;
 let c2pa = null;
+let cawgInterceptor = null;
 
 const state = {
   recentStatuses: [], // { ts, status } for overall status aggregation
@@ -81,6 +105,11 @@ const state = {
   noC2paData: false,
   hadInitError: false,
   selectedNode: null,
+  cawgLatest: null, // last segment whose manifest carried cawg.* assertions
+  cawgCount: 0,
+  cawgSeen: new Set(), // "<kind>|<mediaType>|<segmentNumber>" of already reported segments
+  cawgSig: null, // signature of the CAWG data currently rendered in the detail block
+  cawgFromSegments: false, // true as soon as CAWG data has been read from segment bytes
 };
 
 const tree = createJsonTree(els.manifestTree, {
@@ -238,8 +267,15 @@ function addTick(rec) {
 // Manifest display
 // ---------------------------------------------------------------------------
 
+// The assertion labels are part of the signature on purpose: signers such as
+// Unified Origin reuse label and instanceId of the init manifest for every
+// segment but add assertions (cawg.*) to the per-segment manifests. Without the
+// labels the tree would keep showing the leaner init manifest forever.
 function manifestSignature(manifest) {
-  return `${manifest?.label ?? ''}|${manifest?.instanceId ?? ''}`;
+  const labels = Array.isArray(manifest?.assertions)
+    ? manifest.assertions.map((a) => a.label).join(',')
+    : '';
+  return `${manifest?.label ?? ''}|${manifest?.instanceId ?? ''}|${labels}`;
 }
 
 function renderManifest(manifest, source) {
@@ -300,6 +336,213 @@ setInterval(() => {
   renderManifest(manifest, source);
   updateMeta();
 }, 500);
+
+// ---------------------------------------------------------------------------
+// CAWG section
+//
+// The plugin only reports the manifest of the init segment while a stream is
+// validated via VSI/emsg — the CAWG assertions, however, sit in the C2PA
+// manifest box of each media segment. They are therefore read from the segment
+// bytes via an own dash.js response interceptor (see attachCawgReader) and, as
+// a fallback, from any manifest the plugin hands out per segment.
+// ---------------------------------------------------------------------------
+
+function segmentNumberFromUrl(url) {
+  const filename = url?.split('?')[0].split('/').pop() ?? '';
+  const match = filename.match(/-(\d+)\.(?:m4s|mp4|cmf[vat]|dash)$/i);
+  return match ? Number(match[1]) : null;
+}
+
+// "channel1-video=1200000-1072022426496.m4s" → "channel1-video=1200000"
+function qualityFromUrl(url) {
+  const filename = url?.split('?')[0].split('/').pop() ?? '';
+  return filename.replace(/-\d+\.\w+$/, '').replace(SEGMENT_FILE_RE, '') || null;
+}
+
+function cawgSourceLabel(entry) {
+  const parts = [entry.kind === 'init' ? 'Init segment' : `Segment #${entry.segmentNumber}`];
+  if (entry.mediaType) parts.push(MEDIA_TYPE_LABELS[entry.mediaType] ?? entry.mediaType);
+  if (entry.quality) parts.push(entry.quality);
+  return parts.join(' · ');
+}
+
+function buildCawgAssertion(assertion) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cawg-assert';
+
+  const label = document.createElement('div');
+  label.className = 'cawg-assert-label';
+  label.textContent = assertion.label;
+  wrap.appendChild(label);
+
+  const dl = document.createElement('dl');
+  dl.className = 'cawg-kv';
+  for (const { key, value } of flattenAssertionData(assertion.data)) {
+    const row = document.createElement('div');
+    const dt = document.createElement('dt');
+    dt.textContent = key;
+    dt.title = key;
+    const dd = document.createElement('dd');
+    dd.textContent = value;
+    dd.title = value;
+    row.append(dt, dd);
+    dl.appendChild(row);
+  }
+  wrap.appendChild(dl);
+  return wrap;
+}
+
+function renderCawgDetail(entry) {
+  els.cawgSource.textContent = `${cawgSourceLabel(entry)} · ${fmtTime(entry.timestamp)}`;
+  els.cawgSource.title = entry.url ?? '';
+
+  // Only rebuild the values when the CAWG data itself changed — for a live
+  // stream the same assertions arrive with every segment.
+  const sig = cawgSignature(entry.assertions);
+  if (sig === state.cawgSig) return;
+  state.cawgSig = sig;
+
+  els.cawgAssertions.innerHTML = '';
+  for (const assertion of entry.assertions) {
+    els.cawgAssertions.appendChild(buildCawgAssertion(assertion));
+  }
+}
+
+function addCawgHistoryRow(entry) {
+  const row = document.createElement('details');
+  row.className = 'cawg-row';
+
+  const summary = document.createElement('summary');
+  summary.innerHTML = `<span class="cawg-row-seg"></span><span class="cawg-row-type"></span><span class="cawg-row-sum"></span><time>${fmtTime(entry.timestamp)}</time>`;
+  summary.querySelector('.cawg-row-seg').textContent =
+    entry.kind === 'init' ? 'init' : `#${entry.segmentNumber}`;
+  summary.querySelector('.cawg-row-type').textContent = entry.mediaType
+    ? (MEDIA_TYPE_LABELS[entry.mediaType] ?? entry.mediaType)
+    : '';
+  summary.querySelector('.cawg-row-sum').textContent = cawgSummaryLine(entry.assertions);
+  row.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'cawg-row-body';
+  row.appendChild(body);
+  // Values are built on first expand — a live stream produces a row per segment.
+  row.addEventListener('toggle', () => {
+    if (!row.open || body.hasChildNodes()) return;
+    for (const assertion of entry.assertions) body.appendChild(buildCawgAssertion(assertion));
+  });
+
+  els.cawgHistory.prepend(row);
+  while (els.cawgHistory.children.length > MAX_CAWG_ENTRIES) {
+    els.cawgHistory.removeChild(els.cawgHistory.lastChild);
+  }
+  els.cawgHistoryHint.textContent = `· ${state.cawgCount} segment${state.cawgCount === 1 ? '' : 's'} with CAWG data`;
+}
+
+function addCawgEntry(entry) {
+  if (!entry.assertions?.length) return false;
+  if (!els.chkCawgPerSegment.checked) return false; // per-segment display switched off
+
+  const key = `${entry.kind}|${entry.mediaType ?? ''}|${entry.segmentNumber ?? ''}`;
+  if (state.cawgSeen.has(key)) return false; // already reported via the other path
+  if (state.cawgSeen.size >= MAX_CAWG_KEYS) state.cawgSeen.clear();
+  state.cawgSeen.add(key);
+
+  entry.timestamp = Date.now();
+  state.cawgLatest = entry;
+  state.cawgCount++;
+
+  els.cawgCount.textContent = String(state.cawgCount);
+  els.cawgCount.hidden = false;
+  els.cawgEmpty.hidden = true;
+  els.cawgBody.hidden = false;
+
+  renderCawgDetail(entry);
+  addCawgHistoryRow(entry);
+  return true;
+}
+
+// Reads the CAWG assertions of a single segment. Runs outside the interceptor
+// chain, so a segment is never delayed by the parsing.
+function parseCawgBox(box, meta) {
+  let manifest = null;
+  try {
+    manifest = readManifestBox(box);
+  } catch (error) {
+    console.warn('[cawg] manifest box could not be parsed', error);
+    return;
+  }
+  if (!manifest) return;
+  const added = addCawgEntry({
+    ...meta,
+    manifestLabel: manifest.label,
+    assertions: pickCawgAssertions(manifest.assertions),
+  });
+  // From now on the segment bytes are the single source — the plugin numbers
+  // its segments differently in places, which would duplicate entries.
+  if (added) state.cawgFromSegments = true;
+}
+
+function captureCawgSegment(response) {
+  if (!els.chkCawgPerSegment.checked) return;
+
+  const request = response?.request?.customData?.request;
+  const data = response?.data;
+  if (!request || !(data instanceof ArrayBuffer)) return;
+
+  const kind = SEGMENT_KINDS[request.type ?? ''];
+  if (!kind) return;
+
+  // Copy the C2PA box out while the buffer is still intact — dash.js transfers
+  // it to MSE once the interceptor chain has resolved. Only the box is copied,
+  // not the (up to several MB) segment.
+  let box = null;
+  try {
+    box = extractC2paManifestBox(data);
+  } catch (error) {
+    console.warn('[cawg] C2PA box could not be read', error);
+    return;
+  }
+  if (!box) return;
+
+  const url = response.request?.url;
+  const meta = {
+    kind,
+    mediaType: request.mediaType ?? null,
+    quality: request.representationId ? String(request.representationId) : qualityFromUrl(url),
+    segmentNumber: segmentNumberFromUrl(url) ?? (request.index ?? 0) + 1,
+    url,
+  };
+  queueMicrotask(() => parseCawgBox(box, meta));
+}
+
+function attachCawgReader(dashPlayer) {
+  if (typeof dashPlayer.addResponseInterceptor !== 'function') return;
+  cawgInterceptor = async (response) => {
+    try {
+      captureCawgSegment(response);
+    } catch (error) {
+      console.warn('[cawg] segment could not be processed', error);
+    }
+    return response;
+  };
+  dashPlayer.addResponseInterceptor(cawgInterceptor);
+}
+
+function resetCawg() {
+  state.cawgLatest = null;
+  state.cawgCount = 0;
+  state.cawgSeen.clear();
+  state.cawgSig = null;
+  state.cawgFromSegments = false;
+  els.cawgCount.hidden = true;
+  els.cawgCount.textContent = '0';
+  els.cawgEmpty.hidden = false;
+  els.cawgBody.hidden = true;
+  els.cawgSource.textContent = '';
+  els.cawgAssertions.innerHTML = '';
+  els.cawgHistory.innerHTML = '';
+  els.cawgHistoryHint.textContent = '';
+}
 
 // ---------------------------------------------------------------------------
 // Issues list
@@ -413,6 +656,19 @@ function onSegmentValidated(rec) {
   if (rec.manifest) {
     if (state.mode !== 'vsi') state.mode = 'manifestbox';
     maybeRenderManifest(rec.manifest, `Segment #${rec.segmentNumber}`);
+    // Fallback for manifests that the plugin itself delivers per segment
+    // (manifest-box method and demo mode) — only while no CAWG data has been
+    // read from the segment bytes.
+    if (!state.cawgFromSegments) {
+      addCawgEntry({
+        kind: 'media',
+        mediaType: rec.mediaType,
+        quality: rec.quality ?? null,
+        segmentNumber: rec.segmentNumber,
+        manifestLabel: rec.manifest.label,
+        assertions: pickCawgAssertions(rec.manifest.assertions),
+      });
+    }
   }
 
   addTick(rec);
@@ -462,6 +718,7 @@ function resetUiState() {
   state.noC2paData = false;
   state.hadInitError = false;
 
+  resetCawg();
   tree.clear();
   els.manifestTree.hidden = true;
   els.manifestEmpty.hidden = false;
@@ -491,6 +748,14 @@ function teardown() {
     c2pa = null;
   }
   if (player) {
+    if (cawgInterceptor) {
+      try {
+        player.removeResponseInterceptor?.(cawgInterceptor);
+      } catch {
+        /* interceptor may already be gone */
+      }
+      cawgInterceptor = null;
+    }
     try {
       if (typeof player.destroy === 'function') player.destroy();
       else player.reset();
@@ -522,6 +787,9 @@ function loadStream(url) {
   c2pa.on(C2paEvent.INIT_PROCESSED, onInitProcessed);
   c2pa.on(C2paEvent.SEGMENT_VALIDATED, onSegmentValidated);
   c2pa.on(C2paEvent.ERROR, onC2paError);
+
+  // Own interceptor for the CAWG assertions of each individual segment.
+  attachCawgReader(player);
 
   const ev = MediaPlayer.events;
   player.on(ev.ERROR, (e) => {
@@ -588,6 +856,22 @@ els.btnCopyJson.addEventListener('click', () => {
 });
 els.btnCopyPath.addEventListener('click', () => {
   if (state.selectedNode) copyText(state.selectedNode.path, els.btnCopyPath);
+});
+
+els.chkCawgPerSegment.addEventListener('change', () => {
+  els.cawgHistoryWrap.hidden = !els.chkCawgPerSegment.checked;
+});
+
+els.btnCopyCawg.addEventListener('click', () => {
+  const entry = state.cawgLatest;
+  if (!entry) return;
+  const payload = {
+    source: cawgSourceLabel(entry),
+    url: entry.url ?? null,
+    manifest: entry.manifestLabel ?? null,
+    assertions: Object.fromEntries(entry.assertions.map((a) => [a.label, toPlainJson(a.data)])),
+  };
+  copyText(JSON.stringify(payload, null, 2), els.btnCopyCawg);
 });
 
 els.chkOnlyProblems.addEventListener('change', () => {

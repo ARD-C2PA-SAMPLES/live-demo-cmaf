@@ -302,6 +302,85 @@ segment.
 > for demo purposes only, they are ignored by git on purpose. For production
 > use a proper CA-issued signing certificate.
 
+### Playing the demo on anything but localhost (HTTPS)
+Validation happens in the browser, and the plugin hashes and verifies the
+segments with the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
+(`crypto.subtle.digest`, `importKey`, `verify`). Browsers only expose
+`crypto.subtle` in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts),
+which is HTTPS plus a short list of plain-HTTP origins that count as
+trustworthy anyway: `localhost`, `127.0.0.1` and `[::1]`.
+
+`http://localhost:8090` therefore works out of the box. Opening the same
+page on a LAN address - `http://192.168.x.x:8090`, `http://<hostname>.local:8090` -
+leaves `crypto.subtle` undefined and every segment fails with:
+
+```
+Internal validation error (ManifestBoxValidator)
+undefined is not an object (evaluating 'crypto.subtle.digest')
+```
+
+That is not a problem with the stream or the signature. The fix is to serve
+the demo over HTTPS, which works offline - the certificate is generated
+locally, no public CA and no internet access involved:
+
+```bash
+./tls/generate-tls-cert.sh
+```
+
+This writes a local CA and a server certificate to `tls/`, covering
+`localhost`, the machine's hostname and its current LAN address (add more
+with `EXTRA_NAMES=` / `EXTRA_IPS=`). Trust the CA once - the script prints
+the command for the platform it runs on, on macOS:
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain tls/local-ca-cert.pem
+```
+
+Then bring the stack up with the `tls` profile:
+
+```bash
+docker compose --profile tls up -d
+```
+
+The `tls-proxy` service terminates TLS and publishes player *and* stream
+under one origin, so the HTTPS page does not pull the MPD in as blocked
+mixed content and no CORS is involved:
+
+| URL | serves |
+| --- | --- |
+| `https://<host>:8443/` | the player |
+| `https://<host>:8443/channel1/channel1.isml/.mpd` | the DASH stream |
+
+**https://localhost:8443/?url=https://localhost:8443/channel1/channel1.isml/.mpd**
+
+`?url=` also accepts a relative value - `?url=/channel1/channel1.isml/.mpd`
+loads the same stream from whatever address the page was opened on, which
+saves editing the link per host. It is loaded on startup, but the URL field
+is an `<input type="url">`, so pressing *Load* again with a relative value
+in it is rejected by the browser's form validation; paste the absolute URL
+for that. Set `TLS_PORT` in `.env` to publish on a different port
+(`TLS_PORT=443` gives URLs without a port number).
+
+> [!NOTE]
+> Both halves have to be HTTPS. Pointing the HTTPS player at
+> `http://localhost/channel1/…` fails as mixed content in Safari, so use the
+> `/channel1/` path on the proxy rather than the origin's port 80 directly.
+
+Two things the local certificate has to get right, both handled by the
+script: Apple platforms reject server certificates valid for more than 398
+days (so it uses 397), and they ignore the common name entirely - only
+`subjectAltName` counts, which is why IP addresses need an `IP:` entry and
+not just a `DNS:` one.
+
+For a throwaway check on a single machine Chrome can also be told to treat
+one insecure origin as trustworthy, which needs no certificate at all:
+
+```bash
+open -na "Google Chrome" --args --unsafely-treat-insecure-origin-as-secure=http://192.168.178.69:8090 --user-data-dir=/tmp/chrome-c2pa
+```
+
+Safari has no equivalent switch - there the certificate is the only route.
+
 ## What's next?
 [Learn more about the key features and benefits of using Unified Origin for live streaming](https://docs.unified-streaming.com/documentation/live/index.html)
 

@@ -48,10 +48,47 @@ services:
   # Static website that plays the C2PA signed DASH stream, the URL to play can
   # be passed as a query parameter:
   # http://localhost:8090/?url=http://localhost/channel1/channel1.isml/.mpd
+  #
+  # Note that this port only works on localhost: the C2PA plugin validates
+  # segments with the Web Crypto API, which browsers withhold on insecure
+  # origins. To open the demo on a LAN address use the tls-proxy below.
   c2pa-player:
     build: c2pa-live-dashjs
     ports:
       - 8090:80
     restart: unless-stopped
+    networks:
+      - default
+  # HTTPS entry point, needed to open the player anywhere but on localhost:
+  # crypto.subtle is only exposed in a secure context, and without it every
+  # segment fails validation with "Internal validation error
+  # (ManifestBoxValidator)".
+  #
+  # Publishes player and stream under one origin, so the HTTPS page does not
+  # load the MPD as mixed content and no CORS is involved:
+  #   https://<host>:8443/            -> c2pa-player
+  #   https://<host>:8443/channel1/   -> live-origin
+  #
+  # Opt in, because it needs the locally generated certificate:
+  #   ./tls/generate-tls-cert.sh      (once, works offline)
+  #   docker compose --profile tls up -d
+  tls-proxy:
+    image: nginx:1.27-alpine
+    profiles:
+      - tls
+    ports:
+      - ${TLS_PORT:-8443}:443
+    restart: unless-stopped
+    volumes:
+      - ./tls/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./tls:/etc/nginx/certs:ro
+    depends_on:
+      live-origin:
+        condition: service_healthy
+    healthcheck:
+      test: wget -q --no-check-certificate -O /dev/null https://localhost/
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - default

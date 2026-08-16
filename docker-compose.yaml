@@ -20,19 +20,38 @@ services:
       retries: 30
     networks:
       - default
-  ffmpeg-1:
-    build: ffmpeg
+  # nginx with the RTMP module: terminates the RTMP ingest and starts an
+  # FFmpeg transcoder per published stream (exec_push), which pushes CMAF to
+  # the origin. nginx keeps running when no encoder is connected, so the
+  # container survives an encoder that comes and goes.
+  rtmp-ingest:
+    build:
+      context: .
+      dockerfile: upd/Dockerfile
     ports:
-      - 1935:1935
-    # ffmpeg exits when the RTMP publisher disconnects, restart to listen again
+      - 1935:1935  # RTMP ingest, publish to rtmp://localhost:1935/live/stream
+      - 8080:8080  # statistics UI, http://localhost:8080/stat
     restart: unless-stopped
     environment:
-      - RTMP_URL=rtmp://0.0.0.0:1935/live/stream
       - PUB_POINT_URI=http://live-origin/channel1/channel1.isml
-      - 'TRACKS={ "video": [ { "width": 1280, "height": 720, "bitrate": "500k", "codec": "libx264", "framerate": 25, "gop": 48, "timescale": 25 },{ "width": 640, "height": 360, "bitrate": "300k", "codec": "libx264", "framerate": 25, "gop": 48, "timescale": 25 } ], "audio": [ { "samplerate": 48000, "bitrate": "64k", "codec": "aac", "language": "eng", "timescale": 48000, "frag_duration_micros": 1920000 },{ "samplerate": 48000, "bitrate": "64k", "codec": "aac", "language": "dut", "timescale": 48000, "frag_duration_micros": 1920000 } ] }'
+      - 'TRACKS={ "video": [ { "width": 1280, "height": 720, "bitrate": "4000k", "codec": "libx264", "framerate": 25, "gop": 48, "timescale": 25 },{ "width": 640, "height": 360, "bitrate": "2400k", "codec": "libx264", "framerate": 25, "gop": 48, "timescale": 25 } ], "audio": [ { "samplerate": 48000, "bitrate": "64k", "codec": "aac", "language": "eng", "timescale": 48000, "frag_duration_micros": 1920000 },{ "samplerate": 48000, "bitrate": "64k", "codec": "aac", "language": "dut", "timescale": 48000, "frag_duration_micros": 1920000 } ] }'
     depends_on:
       live-origin:
         condition: service_healthy
+    healthcheck:
+      test: curl -fsS http://localhost:8080/healthz
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - default
-
+  # Static website that plays the C2PA signed DASH stream, the URL to play can
+  # be passed as a query parameter:
+  # http://localhost:8090/?url=http://localhost/channel1/channel1.isml/.mpd
+  c2pa-player:
+    build: c2pa-live-dashjs
+    ports:
+      - 8090:80
+    restart: unless-stopped
+    networks:
+      - default

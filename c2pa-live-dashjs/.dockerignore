@@ -1,0 +1,6 @@
+node_modules
+app.bundle.js
+app.bundle.js.map
+.DS_Store
+.claude
+README.md

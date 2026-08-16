@@ -36,7 +36,6 @@ const $ = (id) => document.getElementById(id);
 const els = {
   form: $('streamForm'),
   url: $('streamUrl'),
-  preset: $('presetSelect'),
   btnLoad: $('btnLoad'),
   btnStop: $('btnStop'),
   video: $('video'),
@@ -65,6 +64,8 @@ const els = {
   btnCopyJson: $('btnCopyJson'),
   chkLiveUpdate: $('chkLiveUpdate'),
   cawgCount: $('cawgCount'),
+  cawgSection: $('cawgSection'),
+  btnCawgToggle: $('btnCawgToggle'),
   cawgEmpty: $('cawgEmpty'),
   cawgBody: $('cawgBody'),
   cawgSource: $('cawgSource'),
@@ -110,6 +111,7 @@ const state = {
   cawgSeen: new Set(), // "<kind>|<mediaType>|<segmentNumber>" of already reported segments
   cawgSig: null, // signature of the CAWG data currently rendered in the detail block
   cawgFromSegments: false, // true as soon as CAWG data has been read from segment bytes
+  cawgOpen: false, // CAWG details start collapsed, the manifest tree gets the space
 };
 
 const tree = createJsonTree(els.manifestTree, {
@@ -463,8 +465,7 @@ function addCawgEntry(entry) {
 
   els.cawgCount.textContent = String(state.cawgCount);
   els.cawgCount.hidden = false;
-  els.cawgEmpty.hidden = true;
-  els.cawgBody.hidden = false;
+  syncCawgVisibility();
 
   renderCawgDetail(entry);
   addCawgHistoryRow(entry);
@@ -538,6 +539,18 @@ function attachCawgReader(dashPlayer) {
   dashPlayer.addResponseInterceptor(cawgInterceptor);
 }
 
+// The CAWG block (cawg.metadata, cawg.identity and the per segment list) is
+// only rendered while it is expanded - collapsed it takes a single line, so
+// the manifest tree underneath gets the room.
+function syncCawgVisibility() {
+  const hasData = state.cawgCount > 0;
+  els.cawgSection.classList.toggle('is-collapsed', !state.cawgOpen);
+  els.cawgBody.hidden = !state.cawgOpen || !hasData;
+  els.cawgEmpty.hidden = !state.cawgOpen || hasData;
+  els.btnCawgToggle.textContent = state.cawgOpen ? 'Hide details' : 'Show details';
+  els.btnCawgToggle.setAttribute('aria-expanded', String(state.cawgOpen));
+}
+
 function resetCawg() {
   state.cawgLatest = null;
   state.cawgCount = 0;
@@ -546,8 +559,7 @@ function resetCawg() {
   state.cawgFromSegments = false;
   els.cawgCount.hidden = true;
   els.cawgCount.textContent = '0';
-  els.cawgEmpty.hidden = false;
-  els.cawgBody.hidden = true;
+  syncCawgVisibility();
   els.cawgSource.textContent = '';
   els.cawgAssertions.innerHTML = '';
   els.cawgHistory.innerHTML = '';
@@ -627,6 +639,39 @@ function addLogEntry(rec) {
 // C2PA event handlers
 // ---------------------------------------------------------------------------
 
+// Sequence findings that this deployment does not treat as a problem.
+//
+// Unified Origin signs every track and every rendition on its own, while the
+// plugin follows one sequence per stream: whenever dash.js switches
+// representation (ABR) or joins mid stream, the sequence number of the next
+// segment does not continue the previous one, which the plugin reports as a
+// gap / livevideo.assertion.invalid. The signature of each segment itself is
+// still verified - only the sequence finding is dropped.
+const IGNORED_SEQUENCE_REASONS = new Set(['gap_detected']);
+const IGNORED_ERROR_CODES = new Set(['livevideo.assertion.invalid']);
+
+function withIgnoredFindingsDropped(rec) {
+  if (rec.status === 'valid' || rec.status === 'unverified') return rec;
+
+  const reason = rec.sequenceReason && !IGNORED_SEQUENCE_REASONS.has(rec.sequenceReason)
+    ? rec.sequenceReason
+    : null;
+  const codes = (rec.errorCodes ?? []).filter((code) => !IGNORED_ERROR_CODES.has(code));
+
+  const dropped = reason !== (rec.sequenceReason ?? null)
+    || codes.length !== (rec.errorCodes?.length ?? 0);
+  if (!dropped) return rec;
+
+  // if the ignored findings were the only ones, the segment itself is fine
+  const nothingLeft = !reason && codes.length === 0;
+  return {
+    ...rec,
+    status: nothingLeft ? 'valid' : rec.status,
+    sequenceReason: reason,
+    errorCodes: codes,
+  };
+}
+
 function onInitProcessed(e) {
   if (e.noC2paData) {
     state.noC2paData = true;
@@ -659,6 +704,7 @@ function onInitProcessed(e) {
 }
 
 function onSegmentValidated(rec) {
+  rec = withIgnoredFindingsDropped(rec);
   state.totalSegments++;
   if (rec.status in state.counters) state.counters[rec.status]++;
   pushStatus(rec.status);
@@ -850,12 +896,9 @@ els.form.addEventListener('submit', (ev) => {
 
 els.btnStop.addEventListener('click', stopStream);
 
-els.preset.addEventListener('change', () => {
-  if (els.preset.value) {
-    els.url.value = els.preset.value;
-    els.preset.selectedIndex = 0;
-    loadStream(els.url.value.trim());
-  }
+els.btnCawgToggle.addEventListener('click', () => {
+  state.cawgOpen = !state.cawgOpen;
+  syncCawgVisibility();
 });
 
 els.btnExpandAll.addEventListener('click', () => tree.expandAll());
@@ -903,11 +946,16 @@ renderCounters();
 updateMeta();
 recomputePill();
 
+// ?url= (or ?src=) loads that stream right away, e.g.
+//   /?url=http://localhost/channel1/channel1.isml/.mpd
+// without a parameter the last URL used is put back into the input, but not
+// loaded
 const params = new URLSearchParams(location.search);
-const initialUrl = params.get('src') ?? localStorage.getItem(STORAGE_KEY);
+const paramUrl = params.get('url') ?? params.get('src');
+const initialUrl = paramUrl ?? localStorage.getItem(STORAGE_KEY);
 if (initialUrl) {
   els.url.value = initialUrl;
-  if (params.get('src')) loadStream(initialUrl);
+  if (paramUrl) loadStream(paramUrl);
 }
 
 // Debug/demo access from the browser console:

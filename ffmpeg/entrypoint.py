@@ -5,9 +5,10 @@ Entrypoint to run ffmpeg
 import json
 import logging
 import os
+import signal
 import subprocess
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timezone
 from fractions import Fraction
 
 
@@ -27,6 +28,59 @@ def flatten(items):
             yield from flatten(x)
         else:
             yield x
+
+
+def run(command, grace_seconds=5):
+    """Run ffmpeg and pass termination signals on to it.
+
+    ffmpeg starts its shutdown on the first SIGTERM but 6.x can get stuck in
+    there and only hard exits after a handful of signals. Whoever stops us
+    (docker, or nginx-rtmp when the publisher disconnects) does not follow up
+    with a SIGKILL of its own, so an ffmpeg left behind would keep ingesting
+    into the origin. Give it grace_seconds to close its CMAF uploads, then
+    kill it.
+    """
+    proc = subprocess.Popen(command)
+
+    def terminate(signum, _frame):
+        logger.info("signal %s, stopping ffmpeg", signum)
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+        signal.alarm(grace_seconds)
+
+    def force_kill(_signum, _frame):
+        logger.warning("ffmpeg did not stop within %ss, killing it",
+                       grace_seconds)
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    signal.signal(signal.SIGTERM, terminate)
+    signal.signal(signal.SIGINT, terminate)
+    signal.signal(signal.SIGALRM, force_kill)
+
+    returncode = proc.wait()
+    signal.alarm(0)
+    return returncode
+
+
+def muxer_has_option(option):
+    """Is option supported by this build's mp4 muxer?
+
+    -audio_track_timescale comes from an out of tree patch (see
+    0002-add-audio_track_timescale-option.patch), a distribution FFmpeg does
+    not have it.
+    """
+    try:
+        muxer_help = subprocess.run(
+            FFMPEG + ["-hide_banner", "-h", "muxer=mp4"],
+            capture_output=True, text=True, check=False).stdout
+    except OSError:
+        return False
+    return f"-{option} " in muxer_help
 
 
 # fixed options
@@ -50,6 +104,12 @@ hostname = os.environ["HOSTNAME"] if "HOSTNAME" in os.environ else "ffmpeg"
 frame_rate = os.environ["FRAME_RATE"] if "FRAME_RATE" in os.environ else "25"
 gop_length = os.environ["GOP_LENGTH"] if "GOP_LENGTH" in os.environ else "24"
 rtmp_url = os.environ["RTMP_URL"] if "RTMP_URL" in os.environ else "rtmp://0.0.0.0:1935/live/stream"
+
+# Listen for an encoder ourselves (the default), or read an already published
+# stream from an RTMP server. The latter is what the nginx-rtmp container in
+# upd/ does: nginx terminates the encoder session and starts us per stream.
+rtmp_listen = os.environ.get("RTMP_LISTEN", "1").lower() not in ("0", "false", "no", "")
+rtmp_flashver = os.environ.get("RTMP_FLASHVER", "")
 
 # logo overlay is off by default, set LOGO_OVERLAY to a file/URL to enable it
 logo_overlay = os.environ["LOGO_OVERLAY"] if "LOGO_OVERLAY" in os.environ else ""
@@ -79,7 +139,8 @@ DEFAULT_TRACKS = {
             "bitrate": "64k",
             "codec": "aac",
             "language": "eng",
-            "timescale": 48000
+            "timescale": 48000,
+            "frag_duration_micros": 1920000
         }
     ]
 }
@@ -127,8 +188,9 @@ audio_offset = int(tracks["audio"][0]["timescale"] * now)
 now_mod_days = Fraction(int(now * 1000000) % 86400000000, 1000000)
 
 max_framerate_int = int(max_framerate)
-now_timecode = (datetime.utcfromtimestamp(float(now)).strftime("%H\:%M\:%S"))
-now_milliseconds = int((datetime.utcfromtimestamp(float(now)).strftime("%f"))[:-3])
+now_utc = datetime.fromtimestamp(float(now), timezone.utc)
+now_timecode = (now_utc.strftime("%H\\:%M\\:%S"))
+now_milliseconds = int((now_utc.strftime("%f"))[:-3])
 now_frames = int(now_milliseconds / (1000 / max_framerate_int))
 
 logger.debug(f"max_framerate_int {max_framerate_int}")
@@ -146,12 +208,17 @@ logger.debug(f"float(now_mod_days) {float(now_mod_days)}")
 
 # build the stupid command
 
-# input rtmp stream, listen for an incoming encoder connection
-rtmp_input = [
-    "-listen", "1",
+# input rtmp stream, listen for an incoming encoder connection unless we are
+# reading the stream from an RTMP server
+rtmp_input = []
+if rtmp_listen:
+    rtmp_input.extend(["-listen", "1"])
+if rtmp_flashver:
+    rtmp_input.extend(["-rtmp_flashver", rtmp_flashver])
+rtmp_input.extend([
     "-fflags", "+genpts",
     "-i", rtmp_url,
-]
+])
 
 # build the filter
 filter_complex = f"""
@@ -160,9 +227,9 @@ scale={max_width}:{max_height}:force_original_aspect_ratio=decrease,
 pad={max_width}:{max_height}:(ow-iw)/2:(oh-ih)/2,
 setsar=1,
 drawtext=box=1:boxcolor=black:boxborderw=1:timecode_rate={max_framerate_int}: timecode='{now_timecode}\\:{now_frames}'" : tc24hmax=1: fontsize=h/25: x=(w-tw)/2+tw/2: y=h/25: fontcolor=white,
-drawtext=box=1:boxcolor=black:boxborderw=1:text='%{{pts\:gmtime\:{now_seconds}\:%Y-%m-%d}}\ ': fontsize=h/25: x=(w-tw)/2-tw/2: y=h/25: fontcolor=white,
+drawtext=box=1:boxcolor=black:boxborderw=1:text='%{{pts\\:gmtime\\:{now_seconds}\\:%Y-%m-%d}}\\ ': fontsize=h/25: x=(w-tw)/2-tw/2: y=h/25: fontcolor=white,
 drawtext=
-    text='Live Media Ingest (CMAF)':
+    text='C2PA-signed DASH-Livestream':
     fontsize=h/25:
     x=(w-text_w)/2:
     y=h/25*2.5:
@@ -222,6 +289,8 @@ for video in tracks["video"]:
     else:
         command.extend([f"{pub_point_uri}/Streams(video_{video['width']}x{video['height']}_{video['bitrate']}.cmfv)"])
 
+audio_track_timescale = muxer_has_option("audio_track_timescale")
+
 count = 0
 for audio in tracks["audio"]:
     if "channels" in audio:
@@ -236,8 +305,18 @@ for audio in tracks["audio"]:
         "-ar", str(audio["samplerate"]),
         "-ac", channels,
         "-metadata:s:a:0", f"language={audio['language']}",
-        "-audio_track_timescale", str(audio["timescale"]),
-        "-frag_duration", str(audio["frag_duration_micros"]),
+    ])
+    if audio_track_timescale:
+        command.extend(["-audio_track_timescale", str(audio["timescale"])])
+    elif int(audio["timescale"]) != int(audio["samplerate"]):
+        # without the option the muxer uses the sample rate as timescale
+        logger.warning(
+            "this ffmpeg build has no -audio_track_timescale, using %s "
+            "instead of the requested %s",
+            audio["samplerate"], audio["timescale"])
+    if "frag_duration_micros" in audio:
+        command.extend(["-frag_duration", str(audio["frag_duration_micros"])])
+    command.extend([
         ALL_TRACK_OPTS,
     ])
     if "name" in audio:
@@ -245,6 +324,7 @@ for audio in tracks["audio"]:
     else:
         command.extend([f"{pub_point_uri}/Streams(audio_{audio['language']}_{audio['bitrate']}.cmfa)"])
 
-logger.debug(f"ffmpeg command: {list(flatten(command))}")
+command = list(flatten(command))
+logger.debug(f"ffmpeg command: {command}")
 
-subprocess.run(list(flatten(command)))
+exit(run(command, grace_seconds=int(os.environ.get("STOP_GRACE_SECONDS", "5"))))

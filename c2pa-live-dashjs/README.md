@@ -7,8 +7,8 @@ validation via [@qualabs/c2pa-live-dashjs-plugin](https://www.npmjs.com/package/
 
 ## Features
 
-- **Live playback** of any DASH stream (`.mpd`), with presets for the
-  [C2PA Live Video Toolkit](https://github.com/qualabs/c2pa-live-video-toolkit) and DASH-IF livesim
+- **Live playback** of any DASH stream (`.mpd`), entered in the URL field or
+  passed in as `?url=`
 - **C2PA manifest as an interactive JSON tree**: nodes are clickable and
   expandable/collapsible, with a path display (`$.assertions[1].data.hash`), byte values
   rendered as hex, “Expand all / Collapse all”, “Copy JSON”, and throttleable live updates
@@ -34,8 +34,26 @@ npm run build     # bundles src/ → app.bundle.js
 npm run serve     # http://localhost:8090
 ```
 
+Or as part of the [live-demo-cmaf](../README.md) stack, which builds the bundle
+in the image and serves it on the same port:
+
+```bash
+docker compose up -d c2pa-player     # from the repository root
+```
+
 The finished site is purely static — deploying only takes these three files:
 `index.html`, `styles.css`, `app.bundle.js` (any static host, no server code required).
+
+### Passing a stream in the URL
+
+`?url=` loads a stream right away, which makes the player linkable:
+
+```
+http://localhost:8090/?url=http://localhost/channel1/channel1.isml/.mpd
+```
+
+`?src=` does the same. Without a parameter the last URL used is restored into
+the input field, but not loaded.
 
 ## Getting a C2PA-signed test stream
 
@@ -49,13 +67,21 @@ cd c2pa-live-video-toolkit
 docker compose up --build
 ```
 
-Then pick the preset **“C2PA toolkit local (Docker)”** in this website
-(`http://localhost:8083/stream.mpd`). The toolkit’s attack proxy can deliberately
-simulate validation failures (tampered, replayed, or missing segments) —
-these then show up in the “Validation issues” panel.
+Then load `http://localhost:8083/stream.mpd` in this website. The toolkit’s
+attack proxy can deliberately simulate validation failures (tampered,
+replayed, or missing segments) — these then show up in the “Validation
+issues” panel.
 
-For a playback-only test without C2PA, use the “DASH-IF livesim” preset —
-segments are then shown as **Unverified / No C2PA data**.
+For a playback-only test without C2PA, load
+`https://livesim2.dashif.org/livesim2/testpic_2s/Manifest.mpd` — segments are
+then shown as **Unverified / No C2PA data**.
+
+> **Sequence findings:** gaps in the C2PA sequence
+> (`gap_detected` / `livevideo.assertion.invalid`) are not reported as issues.
+> Unified Origin signs every rendition separately while the plugin follows one
+> sequence per stream, so every ABR switch would otherwise be flagged. See
+> `IGNORED_SEQUENCE_REASONS` in [src/main.js](src/main.js) to switch it back on.
+> The signature of each segment itself is still verified.
 
 > **CORS note:** third-party streams must send CORS headers, otherwise dash.js
 > reports a download error (shown in the issues panel).

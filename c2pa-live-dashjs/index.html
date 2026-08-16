@@ -4,26 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>C2PA Live · DASH Player</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+  <link rel="icon" href="c2pa-logo.svg" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
 <header class="app-header">
   <div class="brand">
-    <span class="brand-icon">🛡️</span>
+    <img class="brand-icon" src="c2pa-logo.svg" alt="C2PA" width="92" height="74" />
     <div>
       <h1>C2PA Live · DASH Player</h1>
       <p>Real-time validation of Content Credentials in DASH live streams</p>
     </div>
   </div>
   <form id="streamForm" class="stream-form">
-    <select id="presetSelect" aria-label="Choose a stream preset">
-      <option value="">Choose a preset …</option>
-      <option value="http://localhost:8083/stream.mpd">C2PA toolkit local (Docker) – stream.mpd</option>
-      <option value="http://localhost:8083/stream_with_ad.mpd">C2PA toolkit local – with ad insertion</option>
-      <option value="https://livesim2.dashif.org/livesim2/testpic_2s/Manifest.mpd">DASH-IF livesim (no C2PA)</option>
-    </select>
     <input id="streamUrl" type="url" placeholder="https://…/stream.mpd" spellcheck="false"
            aria-label="MPD stream URL" required />
     <button id="btnLoad" type="submit" class="btn btn-primary">Load</button>
@@ -41,7 +35,7 @@
         <div id="videoPlaceholder" class="video-placeholder">
           <span class="ph-icon">▶</span>
           <span>No stream loaded</span>
-          <small>Enter a URL or choose a preset, then click “Load”</small>
+          <small>Enter an MPD URL and click “Load”, or open this page with <code>?url=…</code></small>
         </div>
         <div id="errorBanner" class="error-banner" hidden></div>
       </div>
@@ -95,15 +89,30 @@
       </div>
       <div id="manifestMeta" class="manifest-meta"></div>
 
-      <section class="cawg">
+      <div id="manifestEmpty" class="empty-state">
+        No C2PA manifest received yet.<br />
+        <small>The manifest appears as soon as a signed init or media segment has been processed.</small>
+      </div>
+      <div id="manifestTree" class="manifest-tree" hidden></div>
+      <div id="pathBar" class="path-bar" hidden>
+        <code id="pathText" class="path-text"></code>
+        <span id="pathValue" class="path-value"></span>
+        <button id="btnCopyPath" class="btn btn-small">Copy path</button>
+      </div>
+
+      <!-- CAWG sits below the manifest tree and starts collapsed, so the tree
+           above it gets the space; the toggle keeps it one click away. -->
+      <section id="cawgSection" class="cawg is-collapsed">
         <div class="sub-head">
           <h3>CAWG <span id="cawgCount" class="count-badge count-neutral" hidden>0</span></h3>
           <div class="panel-actions">
+            <button id="btnCawgToggle" class="btn btn-small" aria-expanded="false"
+                    aria-controls="cawgBody">Show details</button>
             <label class="chk"><input type="checkbox" id="chkCawgPerSegment" checked /> Per segment</label>
             <button id="btnCopyCawg" class="btn btn-small">Copy CAWG JSON</button>
           </div>
         </div>
-        <div id="cawgEmpty" class="empty-state cawg-empty">
+        <div id="cawgEmpty" class="empty-state cawg-empty" hidden>
           No CAWG assertions received yet.<br />
           <small>CAWG data (<code>cawg.metadata</code>, <code>cawg.identity</code>) is read from the
             C2PA manifest box of every segment.</small>
@@ -117,17 +126,6 @@
           </div>
         </div>
       </section>
-
-      <div id="manifestEmpty" class="empty-state">
-        No C2PA manifest received yet.<br />
-        <small>The manifest appears as soon as a signed init or media segment has been processed.</small>
-      </div>
-      <div id="manifestTree" class="manifest-tree" hidden></div>
-      <div id="pathBar" class="path-bar" hidden>
-        <code id="pathText" class="path-text"></code>
-        <span id="pathValue" class="path-value"></span>
-        <button id="btnCopyPath" class="btn btn-small">Copy path</button>
-      </div>
     </div>
 
     <div class="panel">

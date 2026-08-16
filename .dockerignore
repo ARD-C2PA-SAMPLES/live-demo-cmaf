@@ -1,0 +1,14 @@
+# The rtmp-ingest image builds from the repository root (it needs both upd/
+# and ffmpeg/entrypoint.py), keep the build context small and free of key
+# material.
+.git
+.claude
+c2pa-live-dashjs
+origin
+*.pem
+*.srl
+*.aix
+*.ext
+*.png
+*.jpg
+.DS_Store

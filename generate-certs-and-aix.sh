@@ -31,9 +31,9 @@ DAYS_ROOT=730
 DAYS=365
 OUTPUT_FILE="minimal.aix"
 
-AIX_TITLE=${AIX_TITLE:-"Unified Streaming Live Demo (CMAF)"}
-AIX_PUBLISHER=${AIX_PUBLISHER:-"Unified Streaming Live Demo"}
-AIX_RIGHTS=${AIX_RIGHTS:-"Demo content, not for production use"}
+AIX_TITLE=${AIX_TITLE:-"Aktuelle Stunde Live (CMAF)"}
+AIX_PUBLISHER=${AIX_PUBLISHER:-"Westdeutscher Rundfunk"}
+AIX_RIGHTS=${AIX_RIGHTS:-"Demo Content for IBC 2026"}
 
 # --- sanity checks ---------------------------------------------------------
 if ! $OPENSSL version | grep -q "OpenSSL 3"; then
@@ -76,7 +76,7 @@ EOF
 
 $OPENSSL req -new \
   -key intermediate-key.pem \
-  -subj "/CN=Unified Tutorial Intermediate" | \
+  -subj "/CN=Westdeutscher Rundfunk" | \
 $OPENSSL x509 -req -in - \
   -CA root-cert.pem \
   -CAkey root-key.pem \
@@ -97,7 +97,7 @@ EOF
 
 $OPENSSL req -new \
   -key leaf-key.pem \
-  -subj "/C=NL/O=Unified Streaming Tutorial/OU=Content Signing/CN=Unified Streaming Tutorial Content Signer" | \
+  -subj "/C=DE/O=WDR Fernsehen/OU=Aktuelle Stunde/CN=Aktuelle Stunde" | \
 $OPENSSL x509 -req -in - \
   -CA intermediate-cert.pem \
   -CAkey intermediate-key.pem \

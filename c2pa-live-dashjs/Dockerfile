@@ -15,7 +15,7 @@ RUN npm run build
 
 FROM nginx:alpine
 
-COPY index.html styles.css c2pa-logo.svg /usr/share/nginx/html/
+COPY index.html styles.css c2pa-logo.svg ard-logo.png /usr/share/nginx/html/
 COPY --from=build /app/app.bundle.js /app/app.bundle.js.map /usr/share/nginx/html/
 
 EXPOSE 80

@@ -15,6 +15,8 @@ RUN npm run build
 
 FROM nginx:alpine
 
+# revalidate instead of serving a stale bundle after a rebuild, see nginx.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html styles.css c2pa-logo.svg ard-logo.png /usr/share/nginx/html/
 COPY --from=build /app/app.bundle.js /app/app.bundle.js.map /usr/share/nginx/html/
 

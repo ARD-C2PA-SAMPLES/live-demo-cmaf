@@ -39,9 +39,6 @@
 
   /* validation status, darkened for a light background */
   --c-valid: #26794a;
-  --c-warning: #a86b00;
-  --c-reordered: #9a7000;
-  --c-replayed: #c2410c;
   --c-missing: #c02626;
   --c-invalid: #c02626;
   --c-unverified: #6b7280;
@@ -307,9 +304,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
   background: #d9dde3;
 }
 .tick[data-status="valid"] { background: var(--c-valid); }
-.tick[data-status="warning"] { background: var(--c-warning); }
-.tick[data-status="reordered"] { background: var(--c-reordered); }
-.tick[data-status="replayed"] { background: var(--c-replayed); }
 .tick[data-status="missing"] { background: var(--c-missing); }
 .tick[data-status="invalid"] { background: var(--c-invalid); }
 .tick[data-status="unverified"] { background: var(--c-unverified); }
@@ -340,12 +334,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
 .status-pill[data-status="valid"]      { border-left-color: var(--c-valid);   background: #f1f8f3; }
 .status-pill[data-status="valid"] .pill-label { color: var(--c-valid); }
-.status-pill[data-status="warning"]    { border-left-color: var(--c-warning); background: #fdf7ec; }
-.status-pill[data-status="warning"] .pill-label { color: var(--c-warning); }
-.status-pill[data-status="reordered"]  { border-left-color: var(--c-reordered); }
-.status-pill[data-status="reordered"] .pill-label { color: var(--c-reordered); }
-.status-pill[data-status="replayed"]   { border-left-color: var(--c-replayed); }
-.status-pill[data-status="replayed"] .pill-label { color: var(--c-replayed); }
 .status-pill[data-status="missing"],
 .status-pill[data-status="invalid"]    { border-left-color: var(--c-invalid); background: #fdf1f1; }
 .status-pill[data-status="missing"] .pill-label,
@@ -360,7 +348,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .stats {
   flex: 1 1 260px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px 14px;
   margin: 0;
   padding: 10px 14px;
@@ -404,9 +392,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
   flex: 0 0 auto;
 }
 .counter-chip[data-status="valid"] .dot      { background: var(--c-valid); }
-.counter-chip[data-status="warning"] .dot    { background: var(--c-warning); }
-.counter-chip[data-status="reordered"] .dot  { background: var(--c-reordered); }
-.counter-chip[data-status="replayed"] .dot   { background: var(--c-replayed); }
 .counter-chip[data-status="missing"] .dot    { background: var(--c-missing); }
 .counter-chip[data-status="invalid"] .dot    { background: var(--c-invalid); }
 .counter-chip[data-status="unverified"] .dot { background: var(--c-unverified); }
@@ -421,9 +406,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
   border-left: 3px solid var(--c-invalid);
 }
 .problem:last-child { border-bottom: none; }
-.problem[data-status="warning"]   { border-left-color: var(--c-warning); }
-.problem[data-status="reordered"] { border-left-color: var(--c-reordered); }
-.problem[data-status="replayed"]  { border-left-color: var(--c-replayed); }
 .problem[data-status="missing"]   { border-left-color: var(--c-missing); }
 
 .problem-head { display: flex; align-items: center; gap: 8px; }
@@ -440,9 +422,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
   background: var(--c-invalid);
   white-space: nowrap;
 }
-.badge[data-status="warning"]   { background: var(--c-warning); }
-.badge[data-status="reordered"] { background: var(--c-reordered); }
-.badge[data-status="replayed"]  { background: var(--c-replayed); }
 
 .problem-line { margin-top: 5px; font-size: 12.5px; color: var(--text); }
 .problem-code { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -678,9 +657,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
 }
 .log-row:last-child { border-bottom: none; }
 .log-row[data-status="valid"] .dot      { background: var(--c-valid); }
-.log-row[data-status="warning"] .dot    { background: var(--c-warning); }
-.log-row[data-status="reordered"] .dot  { background: var(--c-reordered); }
-.log-row[data-status="replayed"] .dot   { background: var(--c-replayed); }
 .log-row[data-status="missing"] .dot    { background: var(--c-missing); }
 .log-row[data-status="invalid"] .dot    { background: var(--c-invalid); }
 .log-row[data-status="unverified"] .dot { background: var(--c-unverified); }
@@ -689,11 +665,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .log-type { min-width: 44px; color: var(--muted); }
 .log-status { min-width: 110px; }
 .log-row[data-status="valid"] .log-status { color: var(--c-valid); }
-.log-row[data-status="warning"] .log-status { color: var(--c-warning); }
 .log-row[data-status="invalid"] .log-status,
 .log-row[data-status="missing"] .log-status { color: var(--c-invalid); }
-.log-row[data-status="replayed"] .log-status { color: var(--c-replayed); }
-.log-row[data-status="reordered"] .log-status { color: var(--c-reordered); }
 .log-row[data-status="unverified"] .log-status { color: var(--c-unverified); }
 .log-extra { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-row time { color: var(--muted); font-size: 11px; }

@@ -266,7 +266,10 @@ export function createJsonTree(container, opts = {}) {
     hasData = true;
     if (!seeded) {
       expandedPaths.add('$');
-      seedDepth(value, '$', initialDepth);
+      // depth counts down from the root, so it starts at 0 - passing
+      // initialDepth here made the guard in seedDepth fire on the first call
+      // and nothing below the root was ever pre-expanded
+      seedDepth(value, '$', 0);
       seeded = true;
     } else {
       expandedPaths.add('$');

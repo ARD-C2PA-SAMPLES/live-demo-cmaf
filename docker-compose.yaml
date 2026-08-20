@@ -92,3 +92,63 @@ services:
       retries: 3
     networks:
       - default
+  # Same stream, one port up, but with damaged segments: an HTTPS reverse
+  # proxy that flips bits in CMAF media segments on their way to the player
+  # (every 5th segment of every track by default).
+  #
+  # This is what makes the C2PA validation visible - a single flipped bit in
+  # the mdat payload breaks the hash over the segment, so the player marks it
+  # as tampered while the picture keeps running. Init segments and manifests
+  # are never touched.
+  #
+  # Publishes the same layout as tls-proxy, so both URLs play the same stream:
+  #   https://<host>:8443/  clean       https://<host>:8444/  glitched
+  #   https://<host>:8444/glitch/       control panel (change it while it runs)
+  #
+  # Runs with the tls profile, it needs the same certificate:
+  #   ./tls/generate-tls-cert.sh
+  #   docker compose --profile tls up -d
+  glitch-proxy:
+    build: glitch-proxy
+    profiles:
+      - tls
+      - glitch
+    ports:
+      - ${GLITCH_PORT:-8444}:443
+    restart: unless-stopped
+    environment:
+      - UPSTREAM_STREAM=http://live-origin:80
+      - UPSTREAM_PLAYER=http://c2pa-player:80
+      - STREAM_PREFIXES=/channel1/
+      # start corrupting right away, all of this is changeable at runtime
+      - GLITCH_ENABLED=${GLITCH_ENABLED:-true}
+      # every Nth media segment per representation, 0 disables
+      - GLITCH_EVERY=${GLITCH_EVERY:-5}
+      # 1 bit breaks the C2PA hash, ~2000 bits break the picture as well
+      - GLITCH_BITS=${GLITCH_BITS:-1}
+      # mdat (media payload) | c2pa (inband COSE signature) | moof | any
+      - GLITCH_TARGET=${GLITCH_TARGET:-mdat}
+      # regex on the segment name, empty hits every track (e.g. video)
+      - GLITCH_TRACKS=${GLITCH_TRACKS:-}
+      # basic auth on /glitch/ only - the stream, the player and /healthz stay
+      # open. Empty password disables it.
+      - GLITCH_USER=${GLITCH_USER:-glitch}
+      - GLITCH_PASSWORD=${GLITCH_PASSWORD:-glitch}
+    volumes:
+      - ./tls:/etc/glitch/certs:ro
+    depends_on:
+      live-origin:
+        condition: service_healthy
+      c2pa-player:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import ssl, urllib.request; urllib.request.urlopen('https://localhost/glitch/healthz', context=ssl._create_unverified_context())
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - default

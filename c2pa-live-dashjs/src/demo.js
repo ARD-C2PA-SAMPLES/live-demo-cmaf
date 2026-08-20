@@ -124,17 +124,6 @@ export function runDemo(handlers) {
 
   const steps = [];
   for (let i = 0; i < 6; i++) steps.push(validSegment);
-  steps.push(() => {
-    const n = seq++;
-    onSegmentValidated(
-      record({
-        segmentNumber: n,
-        status: 'warning',
-        errorCodes: ['assertion.action.ingredientMismatch'],
-        manifest: sampleManifest(n),
-      })
-    );
-  });
   for (let i = 0; i < 3; i++) steps.push(validSegment);
   steps.push(() => {
     const n = seq++;
@@ -144,16 +133,6 @@ export function runDemo(handlers) {
         status: 'invalid',
         errorCodes: ['livevideo.segment.invalid', 'claim.signature.mismatch'],
         manifest: sampleManifest(n),
-      })
-    );
-  });
-  steps.push(() => {
-    onSegmentValidated(
-      record({
-        segmentNumber: seq - 1,
-        status: 'replayed',
-        sequenceReason: 'duplicate',
-        errorCodes: ['livevideo.assertion.invalid'],
       })
     );
   });

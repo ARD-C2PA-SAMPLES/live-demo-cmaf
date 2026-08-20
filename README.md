@@ -381,6 +381,96 @@ open -na "Google Chrome" --args --unsafely-treat-insecure-origin-as-secure=http:
 
 Safari has no equivalent switch - there the certificate is the only route.
 
+### Breaking the stream on purpose (glitch proxy)
+A signed stream that always validates proves very little in a demo. The
+`glitch-proxy` service is the counterexample: an HTTPS reverse proxy that
+serves the *same* player and the *same* stream as `tls-proxy`, one port up,
+but flips bits in the CMAF media segments on their way to the player.
+
+| URL | serves |
+| --- | --- |
+| `https://<host>:8444/` | the player, on the damaged stream |
+| `https://<host>:8444/channel1/channel1.isml/.mpd` | the DASH stream, segments corrupted |
+| `https://<host>:8444/glitch/` | control panel, changes apply immediately |
+
+It comes up with the `tls` profile, because it uses the same certificate:
+
+```bash
+docker compose --profile tls up -d
+```
+
+**https://localhost:8444/?url=/channel1/channel1.isml/.mpd**
+
+Same page on `:8443` is the clean reference - two browser windows side by
+side is the whole demo. By default every 5th media segment *of every track*
+gets one bit flipped inside its `mdat` box, which is enough to break the C2PA
+hash over the segment: the player reports those segments as tampered while
+the picture keeps running. Turn the bit count up to a few thousand and the
+decoder starts producing visible artefacts as well.
+
+What is never touched: initialization segments (they carry `moov`, and
+corrupting those kills the decoder outright, drowning the interesting errors
+in noise), manifests, `/state` and the player assets.
+
+Everything is adjustable while it runs, from the panel or the JSON API:
+
+The panel and the API are behind HTTP basic auth (`glitch` / `glitch` by
+default, set `GLITCH_USER` / `GLITCH_PASSWORD` in `.env`). Only the controls
+are - the stream and the player need no credentials, so a viewer never sees a
+prompt.
+
+```bash
+# every 3rd segment, video only, enough bits to see it
+curl -sk -u glitch:glitch -X POST https://localhost:8444/glitch/api/config \
+  -H 'Content-Type: application/json' \
+  -d '{"every": 3, "bits": 4000, "target": "mdat", "tracks": "video"}'
+
+# back to clean
+curl -sk -u glitch:glitch -X POST https://localhost:8444/glitch/api/config \
+  -H 'Content-Type: application/json' -d '{"enabled": false}'
+
+# what was hit so far
+curl -sk -u glitch:glitch https://localhost:8444/glitch/api/config | jq .events
+```
+
+| setting | meaning |
+| --- | --- |
+| `enabled` | master switch, `false` proxies the stream untouched |
+| `every` | corrupt every Nth media segment, counted per representation (`0` = never) |
+| `bits` | bit flips per corrupted segment: `1` breaks validation, `~2000` breaks the picture |
+| `target` | which box to hit, see the table below |
+| `tracks` | regex on the segment name, e.g. `video`, `audio_eng`; empty hits every track |
+
+`GLITCH_PORT` and the `GLITCH_*` defaults in `.env` set the starting point,
+see `.env.example`. Every response carries an `X-Glitch` header
+(`corrupted` / `clean` / `skipped`) with the segment count and the byte
+offsets that were flipped, so the network tab of the browser shows exactly
+which segment was damaged and where.
+
+### Which target breaks what
+A signed segment carries C2PA in two places and only one of them is
+validated, so the target decides whether anything visible happens at all:
+
+| `target` | box | what the player shows |
+| --- | --- | --- |
+| `mdat` | media payload | *Cryptographic verification failed* - the hash over the segment no longer matches, while the picture usually keeps running |
+| `c2pa` | the `emsg` event (`urn:c2pa:verifiable-segment-info`), whose payload is a **COSE_Sign1** | the same failure via the other path: the per segment *signature* does not verify |
+| `moof` | fragment header | a decoder error rather than a validation error |
+| `any` | anywhere | whatever it hits |
+
+The top level `uuid` box, the C2PA manifest store, is deliberately not a
+target: it feeds the CAWG assertion view, the validator checks the `emsg`
+signature and never reads it, so damaging it produces no visible failure.
+
+When a segment is due for corruption but carries no such box - an unsigned
+stream with `target=c2pa`, say - the proxy says so (`X-Glitch: no-target`, and
+a warning in the panel) instead of quietly passing the segment through.
+
+> [!NOTE]
+> The proxy buffers a segment to rewrite it, so the glitched stream runs a
+> touch behind the clean one. It is a demo tool - never put it in front of
+> anything real.
+
 ## What's next?
 [Learn more about the key features and benefits of using Unified Origin for live streaming](https://docs.unified-streaming.com/documentation/live/index.html)
 

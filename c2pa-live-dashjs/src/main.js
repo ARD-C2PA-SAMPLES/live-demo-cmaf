@@ -46,7 +46,6 @@ const els = {
   pill: $('statusPill'),
   pillLabel: $('statusPillLabel'),
   pillSub: $('statusPillSub'),
-  statMode: $('statMode'),
   statManifestId: $('statManifestId'),
   statKeys: $('statKeys'),
   statSegments: $('statSegments'),
@@ -115,7 +114,11 @@ const state = {
 };
 
 const tree = createJsonTree(els.manifestTree, {
-  initialDepth: 2,
+  // Fully expanded on first render: the parts of a C2PA manifest worth looking
+  // at - signatureInfo, the assertion list - sit below depth 2, and opening
+  // them by hand on every reload is friction in a demo. Collapse/expand after
+  // that is remembered, so this only decides the starting state.
+  initialDepth: Infinity,
   onSelect: (sel) => {
     state.selectedNode = sel;
     els.pathBar.hidden = false;
@@ -236,15 +239,8 @@ function renderCounters() {
 }
 
 function updateMeta() {
-  const modeText =
-    state.mode === 'vsi'
-      ? 'VSI (session keys in init segment)'
-      : state.mode === 'manifestbox'
-        ? 'Manifest Box (manifest per segment)'
-        : state.mode === 'none'
-          ? 'No C2PA data'
-          : '–';
-  els.statMode.textContent = modeText;
+  // state.mode is still tracked - it decides whether the session key count is
+  // meaningful - it is just no longer shown as its own stat.
   els.statKeys.textContent = state.mode === 'vsi' || state.sessionKeys > 0 ? String(state.sessionKeys) : '–';
   els.statManifestId.textContent = state.manifestId ?? '–';
   els.statManifestId.title = state.manifestId ?? '';
@@ -647,8 +643,21 @@ function addLogEntry(rec) {
 // segment does not continue the previous one, which the plugin reports as a
 // gap / livevideo.assertion.invalid. The signature of each segment itself is
 // still verified - only the sequence finding is dropped.
-const IGNORED_SEQUENCE_REASONS = new Set(['gap_detected']);
+const IGNORED_SEQUENCE_REASONS = new Set([
+  'gap_detected',
+  'duplicate',
+  'out_of_order',
+  'sequence_number_below_minimum',
+]);
 const IGNORED_ERROR_CODES = new Set(['livevideo.assertion.invalid']);
+
+// Statuses this deployment does not report at all. They are all sequence
+// bookkeeping rather than a statement about the signature, and for the same
+// reason as the gap above they say nothing here: with one signing sequence per
+// rendition, every ABR switch looks like a replay or a reorder. A segment that
+// carries nothing but one of these is shown as valid; if it also has a real
+// error code, that code decides and the status is left alone.
+const IGNORED_STATUSES = new Set(['replayed', 'reordered', 'warning']);
 
 function withIgnoredFindingsDropped(rec) {
   if (rec.status === 'valid' || rec.status === 'unverified') return rec;
@@ -657,16 +666,20 @@ function withIgnoredFindingsDropped(rec) {
     ? rec.sequenceReason
     : null;
   const codes = (rec.errorCodes ?? []).filter((code) => !IGNORED_ERROR_CODES.has(code));
+  const status = IGNORED_STATUSES.has(rec.status)
+    ? (codes.length ? 'invalid' : 'valid')
+    : rec.status;
 
   const dropped = reason !== (rec.sequenceReason ?? null)
-    || codes.length !== (rec.errorCodes?.length ?? 0);
+    || codes.length !== (rec.errorCodes?.length ?? 0)
+    || status !== rec.status;
   if (!dropped) return rec;
 
   // if the ignored findings were the only ones, the segment itself is fine
   const nothingLeft = !reason && codes.length === 0;
   return {
     ...rec,
-    status: nothingLeft ? 'valid' : rec.status,
+    status: nothingLeft ? 'valid' : status,
     sequenceReason: reason,
     errorCodes: codes,
   };

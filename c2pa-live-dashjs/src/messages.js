@@ -3,13 +3,12 @@
 // Human-readable messages for validation error codes come from the plugin's
 // ERROR_CODE_MESSAGES export.
 
+// `replayed`, `reordered` and `warning` are deliberately absent: this
+// deployment does not report them, see IGNORED_STATUSES in main.js.
 export const STATUS_LABELS = {
   valid: 'Valid',
   invalid: 'Invalid',
-  replayed: 'Replay detected',
-  reordered: 'Reordered',
   missing: 'Segments missing',
-  warning: 'Warning',
   unverified: 'Unverified',
 };
 
@@ -17,18 +16,12 @@ export const STATUS_LABELS = {
 export const STATUS_SEVERITY = {
   valid: 1,
   unverified: 2,
-  warning: 3,
-  reordered: 4,
-  replayed: 5,
   missing: 6,
   invalid: 7,
 };
 
 export const SEQUENCE_REASONS = {
-  duplicate: 'Duplicate – segment was already played (possible replay attack)',
-  out_of_order: 'Segment out of the expected order',
   gap_detected: 'Gap detected in the sequence (missing segments)',
-  sequence_number_below_minimum: 'Sequence number below the session key minimum',
 };
 
 // The plugin only validates video and audio; text segments show up in the CAWG

@@ -57,7 +57,6 @@
           <span id="statusPillSub" class="pill-sub">Load a stream URL to start validation</span>
         </div>
         <dl class="stats">
-          <div><dt>Method</dt><dd id="statMode">–</dd></div>
           <div><dt>Session keys</dt><dd id="statKeys">–</dd></div>
           <div><dt>Segments checked</dt><dd id="statSegments">0</dd></div>
           <div class="stat-wide"><dt>Manifest ID</dt><dd id="statManifestId">–</dd></div>
@@ -136,11 +135,11 @@
       <div class="panel-head">
         <h2>Segment log</h2>
         <div class="panel-actions">
-          <label class="chk"><input type="checkbox" id="chkOnlyProblems" /> Issues only</label>
+          <label class="chk"><input type="checkbox" id="chkOnlyProblems" checked /> Issues only</label>
         </div>
       </div>
       <div id="logEmpty" class="empty-state">No segments processed yet</div>
-      <div id="logList" class="log-list" aria-live="polite"></div>
+      <div id="logList" class="log-list only-problems" aria-live="polite"></div>
     </div>
   </section>
 

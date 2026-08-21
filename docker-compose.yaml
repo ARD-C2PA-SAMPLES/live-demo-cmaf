@@ -74,8 +74,8 @@ services:
   #   docker compose --profile tls up -d
   tls-proxy:
     image: nginx:1.27-alpine
-    profiles:
-      - tls
+    #profiles:
+    #  - tls
     ports:
       - ${TLS_PORT:-8443}:443
     restart: unless-stopped
@@ -110,9 +110,9 @@ services:
   #   docker compose --profile tls up -d
   glitch-proxy:
     build: glitch-proxy
-    profiles:
-      - tls
-      - glitch
+    #profiles:
+    #  - tls
+    #  - glitch
     ports:
       - ${GLITCH_PORT:-8444}:443
     restart: unless-stopped

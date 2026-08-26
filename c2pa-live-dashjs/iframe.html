@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>C2PA Live · DASH Player</title>
+  <link rel="icon" href="c2pa-logo.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <div>
+      <h1>C2PA Live · DASH Player</h1>
+      <p>Real-time validation of Content Credentials in DASH live streams</p>
+    </div>
+  </div>
+  <form id="streamForm" class="stream-form">
+    <input id="streamUrl" type="url" placeholder="https://…/stream.mpd" spellcheck="false"
+           aria-label="MPD stream URL" required />
+    <button id="btnLoad" type="submit" class="btn btn-primary">Load</button>
+    <button id="btnStop" type="button" class="btn" disabled>Stop</button>
+  </form>
+</header>
+
+<main class="layout">
+
+  <!-- Left column: player + status -->
+  <section class="col col-left">
+    <div class="panel player-panel">
+      <div class="video-wrap">
+        <video id="video" controls muted playsinline></video>
+        <div id="videoPlaceholder" class="video-placeholder">
+          <span class="ph-icon">▶</span>
+          <span>No stream loaded</span>
+          <small>Enter an MPD URL and click “Load”, or open this page with <code>?url=…</code></small>
+        </div>
+        <div id="errorBanner" class="error-banner" hidden></div>
+      </div>
+
+      <div class="player-meta">
+        <span id="playerState" class="player-state">Ready</span>
+        <span id="liveBadge" class="live-badge" hidden>● LIVE</span>
+      </div>
+
+      <div id="segStrip" class="seg-strip" title="Validation status of recent segments"></div>
+
+      <div class="status-row">
+        <div id="statusPill" class="status-pill" data-status="none">
+          <span id="statusPillLabel" class="pill-label">No stream</span>
+          <span id="statusPillSub" class="pill-sub">Load a stream URL to start validation</span>
+        </div>
+        <dl class="stats">
+          <div><dt>Session keys</dt><dd id="statKeys">–</dd></div>
+          <div><dt>Segments checked</dt><dd id="statSegments">0</dd></div>
+          <div class="stat-wide"><dt>Manifest ID</dt><dd id="statManifestId">–</dd></div>
+        </dl>
+      </div>
+
+      <div id="counters" class="counters"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Validation issues <span id="problemsCount" class="count-badge" hidden>0</span></h2>
+        <div class="panel-actions">
+          <button id="btnClearProblems" class="btn btn-small">Clear</button>
+        </div>
+      </div>
+      <div id="problemsEmpty" class="empty-state ok">✓ No validation issues detected</div>
+      <div id="problemsList" class="problems-list" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- Right column: manifest + log -->
+  <section class="col col-right">
+    <div class="panel manifest-panel">
+      <div class="panel-head">
+        <h2>C2PA Manifest</h2>
+        <div class="panel-actions">
+          <label class="chk"><input type="checkbox" id="chkLiveUpdate" checked /> Live updates</label>
+          <button id="btnExpandAll" class="btn btn-small">Expand all</button>
+          <button id="btnCollapseAll" class="btn btn-small">Collapse all</button>
+          <button id="btnCopyJson" class="btn btn-small">Copy JSON</button>
+        </div>
+      </div>
+      <div id="manifestMeta" class="manifest-meta"></div>
+
+      <div id="manifestEmpty" class="empty-state">
+        No C2PA manifest received yet.<br />
+        <small>The manifest appears as soon as a signed init or media segment has been processed.</small>
+      </div>
+      <div id="manifestTree" class="manifest-tree" hidden></div>
+      <div id="pathBar" class="path-bar" hidden>
+        <code id="pathText" class="path-text"></code>
+        <span id="pathValue" class="path-value"></span>
+        <button id="btnCopyPath" class="btn btn-small">Copy path</button>
+      </div>
+
+      <!-- CAWG sits below the manifest tree and starts collapsed, so the tree
+           above it gets the space; the toggle keeps it one click away. -->
+      <section id="cawgSection" class="cawg is-collapsed">
+        <div class="sub-head">
+          <h3>CAWG <span id="cawgCount" class="count-badge count-neutral" hidden>0</span></h3>
+          <div class="panel-actions">
+            <button id="btnCawgToggle" class="btn btn-small" aria-expanded="false"
+                    aria-controls="cawgBody">Show details</button>
+            <label class="chk"><input type="checkbox" id="chkCawgPerSegment" checked /> Per segment</label>
+            <button id="btnCopyCawg" class="btn btn-small">Copy CAWG JSON</button>
+          </div>
+        </div>
+        <div id="cawgEmpty" class="empty-state cawg-empty" hidden>
+          No CAWG assertions received yet.<br />
+          <small>CAWG data (<code>cawg.metadata</code>, <code>cawg.identity</code>) is read from the
+            C2PA manifest box of every segment.</small>
+        </div>
+        <div id="cawgBody" hidden>
+          <div id="cawgSource" class="cawg-source"></div>
+          <div id="cawgAssertions" class="cawg-assertions"></div>
+          <div id="cawgHistoryWrap" class="cawg-history-wrap">
+            <div class="cawg-history-head">Per segment <span id="cawgHistoryHint"></span></div>
+            <div id="cawgHistory" class="cawg-history"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Segment log</h2>
+        <div class="panel-actions">
+          <label class="chk"><input type="checkbox" id="chkOnlyProblems" checked /> Issues only</label>
+        </div>
+      </div>
+      <div id="logEmpty" class="empty-state">No segments processed yet</div>
+      <div id="logList" class="log-list only-problems" aria-live="polite"></div>
+    </div>
+  </section>
+
+</main>
+
+<script type="module" src="app.bundle.js"></script>
+</body>
+</html>

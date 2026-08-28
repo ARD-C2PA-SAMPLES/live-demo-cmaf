@@ -1,0 +1,164 @@
+# Variant of docker-compose.yaml for running behind Amazon CloudFront.
+#
+#   docker compose -f docker-compose.cloudfront.yaml up -d
+#
+# CloudFront terminates TLS, so nothing in here speaks HTTPS:
+#
+#   * the tls-proxy (nginx, ./tls/nginx.conf) is gone. Its only job was to
+#     publish player and stream under one HTTPS origin - that is exactly what
+#     a CloudFront distribution with two behaviours does, and it does it with
+#     a real certificate instead of the self signed one from
+#     ./tls/generate-tls-cert.sh. No certificate has to be generated for this
+#     file to work.
+#   * glitch-proxy listens on plain HTTP (LISTEN_PORT=80, no certificate
+#     mounted - proxy.py drops to HTTP when it finds none).
+#
+# The C2PA plugin still needs a secure context for crypto.subtle, so the
+# browser must reach the demo through CloudFront (https://), never through
+# these host ports directly. Point the distribution at this host and route:
+#
+#   default (/*)   -> PLAYER_PORT (8090)  c2pa-player, the static site
+#   /channel1/*    -> ORIGIN_PORT (80)    live-origin, MPD + CMAF segments
+#
+# and give the damaged stream its own distribution (or its own host name)
+# pointing at GLITCH_PORT (8444), which serves player, stream and control
+# panel by itself:
+#
+#   https://<glitch-domain>/           player on the bit flipped stream
+#   https://<glitch-domain>/channel1/  the stream, every 5th segment damaged
+#   https://<glitch-domain>/glitch/    control panel
+#
+# CloudFront cache behaviour for anything under /channel1/ and /glitch/:
+# caching disabled (CachingDisabled), forward the Range and Origin headers,
+# and allow GET/HEAD/OPTIONS plus POST for the control panel. The origin
+# packages per request and the manifest changes every segment - a cached MPD
+# stalls playback on the live edge. Origin protocol policy is HTTP only.
+services:
+  live-origin:
+    build: origin
+    ports:
+      # CloudFront origin for the /channel1/* behaviour
+      - ${ORIGIN_PORT:-80}:80
+    environment:
+      - UspLicenseKey
+      - PUB_POINT_NAME=channel1
+      - LOG_LEVEL=warn
+      - PUB_POINT_OPTS=--archiving=1 --archive_length=3600 --archive_segment_length=1800 --dvr_window_length=30 --restart_on_encoder_reconnect --mpd.min_buffer_time=96/25 --mpd.suggested_presentation_delay=96/25 --hls.minimum_fragment_length=96/25 --mpd.minimum_fragment_length=96/25 --mpd.segment_template=number_timeline --hls.client_manifest_version=4 --hls.fmp4
+      # Trusted Media (C2PA): AIX document used to sign the live stream,
+      # generate it with ./generate-certs-and-aix.sh (see README)
+      - AIX_FILE=/opt/aix/minimal.aix
+    volumes:
+      - ./minimal.aix:/opt/aix/minimal.aix:ro
+    healthcheck:
+      test: curl http://localhost/$$PUB_POINT_NAME/$$PUB_POINT_NAME.isml/state
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    networks:
+      - default
+  # nginx with the RTMP module: terminates the RTMP ingest and starts an
+  # FFmpeg transcoder per published stream (exec_push), which pushes CMAF to
+  # the origin. nginx keeps running when no encoder is connected, so the
+  # container survives an encoder that comes and goes.
+  #
+  # RTMP is not an HTTP protocol, so it does not go through CloudFront - the
+  # encoder publishes to this host directly.
+  rtmp-ingest:
+    build:
+      context: .
+      dockerfile: upd/Dockerfile
+    ports:
+      - 1935:1935  # RTMP ingest, publish to rtmp://<host>:1935/live/stream
+      - 8080:8080  # statistics UI, http://<host>:8080/stat
+    restart: unless-stopped
+    environment:
+      - PUB_POINT_URI=http://live-origin/channel1/channel1.isml
+      - 'TRACKS={ "video": [ { "width": 1280, "height": 720, "bitrate": "4000k", "codec": "libx264", "framerate": 25, "gop": 48, "timescale": 25 },{ "width": 640, "height": 360, "bitrate": "2400k", "codec": "libx264", "framerate": 25, "gop": 48, "timescale": 25 } ], "audio": [ { "samplerate": 48000, "bitrate": "64k", "codec": "aac", "language": "eng", "timescale": 48000, "frag_duration_micros": 1920000 },{ "samplerate": 48000, "bitrate": "64k", "codec": "aac", "language": "dut", "timescale": 48000, "frag_duration_micros": 1920000 } ] }'
+    depends_on:
+      live-origin:
+        condition: service_healthy
+    healthcheck:
+      test: curl -fsS http://localhost:8080/healthz
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - default
+  # Static website that plays the C2PA signed DASH stream. Served over plain
+  # HTTP here, it is the default (/*) origin of the distribution - open it
+  # through CloudFront, not through this port: the C2PA plugin validates
+  # segments with the Web Crypto API, which browsers withhold on insecure
+  # origins.
+  #
+  # The player takes the stream URL as a query parameter, so with the routing
+  # described above both parts stay on the CloudFront host name:
+  #   https://<domain>/?url=https://<domain>/channel1/channel1.isml/.mpd
+  c2pa-player:
+    build: c2pa-live-dashjs
+    ports:
+      # CloudFront origin for the default (/*) behaviour
+      - ${PLAYER_PORT:-8090}:80
+    restart: unless-stopped
+    networks:
+      - default
+  # Same stream, but with damaged segments: a reverse proxy that flips bits in
+  # CMAF media segments on their way to the player (every 5th segment of every
+  # track by default).
+  #
+  # This is what makes the C2PA validation visible - a single flipped bit in
+  # the mdat payload breaks the hash over the segment, so the player marks it
+  # as tampered while the picture keeps running. Init segments and manifests
+  # are never touched.
+  #
+  # Plain HTTP in this file: no ./tls volume, so proxy.py finds no certificate
+  # and serves HTTP, and LISTEN_PORT moves it from 443 to 80. CloudFront adds
+  # the TLS in front of it.
+  #
+  # It serves player, stream and control panel under one origin, so a single
+  # distribution (default behaviour -> this port) covers all three:
+  #   https://<glitch-domain>/           player on the damaged stream
+  #   https://<glitch-domain>/channel1/  the damaged stream
+  #   https://<glitch-domain>/glitch/    control panel (change it while it runs)
+  glitch-proxy:
+    build: glitch-proxy
+    ports:
+      # CloudFront origin for the damaged stream, HTTP
+      - ${GLITCH_PORT:-8444}:80
+    restart: unless-stopped
+    environment:
+      # no certificate is mounted, so this listener is HTTP
+      - LISTEN_PORT=80
+      - UPSTREAM_STREAM=http://live-origin:80
+      - UPSTREAM_PLAYER=http://c2pa-player:80
+      - STREAM_PREFIXES=/channel1/
+      # start corrupting right away, all of this is changeable at runtime
+      - GLITCH_ENABLED=${GLITCH_ENABLED:-true}
+      # every Nth media segment per representation, 0 disables
+      - GLITCH_EVERY=${GLITCH_EVERY:-5}
+      # 1 bit breaks the C2PA hash, ~2000 bits break the picture as well
+      - GLITCH_BITS=${GLITCH_BITS:-1}
+      # mdat (media payload) | c2pa (inband COSE signature) | moof | any
+      - GLITCH_TARGET=${GLITCH_TARGET:-mdat}
+      # regex on the segment name, empty hits every track (e.g. video)
+      - GLITCH_TRACKS=${GLITCH_TRACKS:-}
+      # basic auth on /glitch/ only - the stream, the player and /healthz stay
+      # open. Empty password disables it. CloudFront forwards the
+      # Authorization header only if the cache policy says so, see above.
+      - GLITCH_USER=${GLITCH_USER:-glitch}
+      - GLITCH_PASSWORD=${GLITCH_PASSWORD:-glitch}
+    depends_on:
+      live-origin:
+        condition: service_healthy
+      c2pa-player:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost/glitch/healthz')
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - default

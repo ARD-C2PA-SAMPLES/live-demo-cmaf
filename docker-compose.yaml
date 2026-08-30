@@ -126,8 +126,8 @@ services:
       - GLITCH_EVERY=${GLITCH_EVERY:-5}
       # 1 bit breaks the C2PA hash, ~2000 bits break the picture as well
       - GLITCH_BITS=${GLITCH_BITS:-1}
-      # mdat (media payload) | c2pa (inband COSE signature) | moof | any
-      - GLITCH_TARGET=${GLITCH_TARGET:-mdat}
+      # c2pa (inband COSE signature) | mdat (media payload) | moof | any
+      - GLITCH_TARGET=${GLITCH_TARGET:-c2pa}
       # regex on the segment name, empty hits every track (e.g. video)
       - GLITCH_TRACKS=${GLITCH_TRACKS:-}
       # basic auth on /glitch/ only - the stream, the player and /healthz stay

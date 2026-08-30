@@ -90,7 +90,7 @@ X-Glitch-Note:    why nothing was flipped, when X-Glitch is no-target
 | `GLITCH_ENABLED` | `true` | master switch |
 | `GLITCH_EVERY` | `5` | corrupt every Nth media segment per representation, `0` = never |
 | `GLITCH_BITS` | `1` | bit flips per corrupted segment |
-| `GLITCH_TARGET` | `mdat` | `mdat`, `c2pa`, `moof` or `any`, see below |
+| `GLITCH_TARGET` | `c2pa` | `c2pa`, `mdat`, `moof` or `any`, see below |
 | `GLITCH_TRACKS` | *(empty)* | regex on the segment name, empty = all tracks |
 | `GLITCH_USER` | `glitch` | basic auth user for `/glitch/` |
 | `GLITCH_PASSWORD` | *(empty)* | basic auth password; empty disables the prompt |

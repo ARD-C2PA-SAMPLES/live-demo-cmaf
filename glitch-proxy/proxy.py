@@ -114,10 +114,11 @@ class Config:
         self.every = max(0, int(os.environ.get("GLITCH_EVERY", "5")))
         # number of individual bit flips per corrupted segment
         self.bits = max(1, int(os.environ.get("GLITCH_BITS", "1")))
-        # which part of the segment to hit
-        self.target = os.environ.get("GLITCH_TARGET", "mdat").strip().lower()
+        # which part of the segment to hit - c2pa by default: breaking the
+        # inband COSE_Sign1 is the failure the demo is about
+        self.target = os.environ.get("GLITCH_TARGET", "c2pa").strip().lower()
         if self.target not in TARGETS:
-            self.target = "mdat"
+            self.target = "c2pa"
         # regex matched against the representation key, empty = every track
         self.tracks = os.environ.get("GLITCH_TRACKS", "").strip()
 
@@ -647,15 +648,15 @@ Init segments and manifests are never touched.</p>
 
 <fieldset>
   <legend>Corruption</legend>
-  <label><span>Enabled</span><input type="checkbox" id="enabled"></label>
+  <label><span>Enabled</span><input type="checkbox" id="enabled" checked></label>
   <label><span>Every Nth segment</span><input type="number" id="every" min="0" step="1">
     <small style="opacity:.7">per representation, 0 = off</small></label>
   <label><span>Bits per segment</span><input type="number" id="bits" min="1" step="1">
     <small style="opacity:.7">1 breaks validation, ~2000 breaks the picture</small></label>
   <label><span>Target box</span>
     <select id="target">
-      <option value="mdat">mdat &mdash; media payload (segment hash fails)</option>
       <option value="c2pa">c2pa &mdash; inband signature (emsg/COSE, validation fails)</option>
+      <option value="mdat">mdat &mdash; media payload (segment hash fails)</option>
       <option value="moof">moof &mdash; fragment header (decoder fails)</option>
       <option value="any">any &mdash; anywhere</option>
     </select></label>

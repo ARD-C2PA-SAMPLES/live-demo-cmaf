@@ -67,12 +67,18 @@ const els = {
   cawgHistoryWrap: $('cawgHistoryWrap'),
   cawgHistoryHint: $('cawgHistoryHint'),
   chkCawgPerSegment: $('chkCawgPerSegment'),
+  problemsPanel: $('problemsPanel'),
+  problemsBody: $('problemsBody'),
   problemsList: $('problemsList'),
   problemsEmpty: $('problemsEmpty'),
   problemsCount: $('problemsCount'),
+  btnProblemsToggle: $('btnProblemsToggle'),
   btnClearProblems: $('btnClearProblems'),
+  logPanel: $('logPanel'),
+  logBody: $('logBody'),
   logList: $('logList'),
   logEmpty: $('logEmpty'),
+  btnLogToggle: $('btnLogToggle'),
   chkOnlyProblems: $('chkOnlyProblems'),
 };
 
@@ -104,6 +110,8 @@ const state = {
   cawgSig: null, // signature of the CAWG data currently rendered in the detail block
   cawgFromSegments: false, // true as soon as CAWG data has been read from segment bytes
   cawgOpen: false, // CAWG details start collapsed, the manifest tree gets the space
+  problemsOpen: false, // issues list starts collapsed, the count badge carries the summary
+  logOpen: false, // segment log starts collapsed
 };
 
 const tree = createJsonTree(els.manifestTree, {
@@ -557,6 +565,28 @@ function resetCawg() {
 }
 
 // ---------------------------------------------------------------------------
+// Collapsible panels
+// ---------------------------------------------------------------------------
+
+// Same deal as the CAWG block: collapsed a panel is only its heading row, and
+// the button is labelled with the action it performs, not with the state it is
+// in. The contents keep rendering underneath - reopening shows the full list.
+function syncPanelToggle(panel, body, button, open) {
+  panel.classList.toggle('is-collapsed', !open);
+  body.hidden = !open;
+  button.textContent = open ? 'Hide details' : 'Show details';
+  button.setAttribute('aria-expanded', String(open));
+}
+
+function syncProblemsVisibility() {
+  syncPanelToggle(els.problemsPanel, els.problemsBody, els.btnProblemsToggle, state.problemsOpen);
+}
+
+function syncLogVisibility() {
+  syncPanelToggle(els.logPanel, els.logBody, els.btnLogToggle, state.logOpen);
+}
+
+// ---------------------------------------------------------------------------
 // Issues list
 // ---------------------------------------------------------------------------
 
@@ -986,6 +1016,16 @@ els.chkOnlyProblems.addEventListener('change', () => {
   els.logList.classList.toggle('only-problems', els.chkOnlyProblems.checked);
 });
 
+els.btnProblemsToggle.addEventListener('click', () => {
+  state.problemsOpen = !state.problemsOpen;
+  syncProblemsVisibility();
+});
+
+els.btnLogToggle.addEventListener('click', () => {
+  state.logOpen = !state.logOpen;
+  syncLogVisibility();
+});
+
 els.btnClearProblems.addEventListener('click', () => {
   els.problemsList.innerHTML = '';
   state.problemCount = 0;
@@ -1000,6 +1040,8 @@ els.btnClearProblems.addEventListener('click', () => {
 renderCounters();
 updateMeta();
 recomputePill();
+syncProblemsVisibility();
+syncLogVisibility();
 
 const params = new URLSearchParams(location.search);
 

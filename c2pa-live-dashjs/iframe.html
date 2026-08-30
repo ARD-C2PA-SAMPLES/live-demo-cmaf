@@ -67,15 +67,21 @@
       <div id="counters" class="counters"></div>
     </div>
 
-    <div class="panel">
+    <!-- Starts collapsed like the CAWG block: the count badge in the heading is
+         enough at a glance, the list itself is one click away. -->
+    <div id="problemsPanel" class="panel is-collapsed">
       <div class="panel-head">
         <h2>Validation issues <span id="problemsCount" class="count-badge" hidden>0</span></h2>
         <div class="panel-actions">
           <button id="btnClearProblems" class="btn btn-small">Clear</button>
+          <button id="btnProblemsToggle" class="btn btn-small" aria-expanded="false"
+                  aria-controls="problemsBody">Show details</button>
         </div>
       </div>
-      <div id="problemsEmpty" class="empty-state ok">✓ No validation issues detected</div>
-      <div id="problemsList" class="problems-list" aria-live="polite"></div>
+      <div id="problemsBody" hidden>
+        <div id="problemsEmpty" class="empty-state ok">✓ No validation issues detected</div>
+        <div id="problemsList" class="problems-list" aria-live="polite"></div>
+      </div>
     </div>
   </section>
 
@@ -129,15 +135,19 @@
       </section>
     </div>
 
-    <div class="panel">
+    <div id="logPanel" class="panel is-collapsed">
       <div class="panel-head">
         <h2>Segment log</h2>
         <div class="panel-actions">
           <label class="chk"><input type="checkbox" id="chkOnlyProblems" checked /> Issues only</label>
+          <button id="btnLogToggle" class="btn btn-small" aria-expanded="false"
+                  aria-controls="logBody">Show details</button>
         </div>
       </div>
-      <div id="logEmpty" class="empty-state">No segments processed yet</div>
-      <div id="logList" class="log-list only-problems" aria-live="polite"></div>
+      <div id="logBody" hidden>
+        <div id="logEmpty" class="empty-state">No segments processed yet</div>
+        <div id="logList" class="log-list only-problems" aria-live="polite"></div>
+      </div>
     </div>
   </section>
 

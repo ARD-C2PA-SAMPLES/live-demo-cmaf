@@ -686,3 +686,41 @@ code { font-family: var(--mono); font-size: 0.92em; }
   text-align: center;
 }
 .app-footer p { margin: 4px 0; }
+
+/* Partner band above the credits. Every mark is stored trimmed to its ink box,
+   so one height is one optical size for most of them. Tune the whole row with
+   --partner-logo-height, a single mark with --logo-scale. */
+.footer-partners {
+  padding-bottom: 14px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #e3e5e9;
+}
+.footer-partners h2 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.footer-logos {
+  --partner-logo-height: 34px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 18px 36px;
+}
+.footer-logos img {
+  height: calc(var(--partner-logo-height) * var(--logo-scale, 1));
+  width: auto;
+  display: block;
+  flex: none;
+}
+/* solid all-caps wordmark, it fills the full box height and so reads bigger
+   than the mixed-case marks beside it */
+.footer-logos .logo-sony { --logo-scale: 0.7; }
+
+@media (max-width: 700px) {
+  .footer-logos { --partner-logo-height: 26px; gap: 14px 22px; }
+}

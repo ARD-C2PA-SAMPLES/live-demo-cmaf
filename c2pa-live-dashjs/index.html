@@ -21,12 +21,18 @@
       <p>Real-time validation of Content Credentials in DASH live streams</p>
     </div>
   </div>
-  <form id="streamForm" class="stream-form">
-    <input id="streamUrl" type="url" placeholder="https://…/stream.mpd" spellcheck="false"
-           aria-label="MPD stream URL" required />
-    <button id="btnLoad" type="submit" class="btn btn-primary">Load</button>
-    <button id="btnStop" type="button" class="btn" disabled>Stop</button>
-  </form>
+  <div class="stream-form">
+    <select id="streamSelect" class="stream-select" aria-label="Live stream">
+      <option value="">Choose a live stream …</option>
+      <option value="https://d1xxal58esrfbz.cloudfront.net/channel1/channel1.isml/.mpd">WDR Live</option>
+      <option value="https://d21g97cfbcpuxt.cloudfront.net/channel1/channel1.isml/.mpd">WDR Live with Glitch Sim.</option>
+      <option value="https://d19gz2xgmiot3b.cloudfront.net/channel1/channel1.isml/.mpd">CBC Live</option>
+      <option value="https://d1q6rzdaolqpdz.cloudfront.net/channel1/channel1.isml/.mpd">CBC Live with Glitch Sim.</option>
+      <option disabled>──────────────</option>
+      <!-- not a stream: opens the glitch proxy control panel in a new tab -->
+      <option value="https://d1q6rzdaolqpdz.cloudfront.net/glitch/" data-newtab>Glitch Pane ↗</option>
+    </select>
+  </div>
 </header>
 
 <main class="layout">
@@ -39,7 +45,7 @@
         <div id="videoPlaceholder" class="video-placeholder">
           <span class="ph-icon">▶</span>
           <span>No stream loaded</span>
-          <small>Enter an MPD URL and click “Load”, or open this page with <code>?url=…</code></small>
+          <small>Pick a stream above, or open this page with <code>?url=…</code></small>
         </div>
         <div id="errorBanner" class="error-banner" hidden></div>
       </div>
@@ -54,7 +60,7 @@
       <div class="status-row">
         <div id="statusPill" class="status-pill" data-status="none">
           <span id="statusPillLabel" class="pill-label">No stream</span>
-          <span id="statusPillSub" class="pill-sub">Load a stream URL to start validation</span>
+          <span id="statusPillSub" class="pill-sub">Pick a stream to start validation</span>
         </div>
         <dl class="stats">
           <div><dt>Session keys</dt><dd id="statKeys">–</dd></div>
@@ -85,9 +91,7 @@
         <h2>C2PA Manifest</h2>
         <div class="panel-actions">
           <label class="chk"><input type="checkbox" id="chkLiveUpdate" checked /> Live updates</label>
-          <button id="btnExpandAll" class="btn btn-small">Expand all</button>
-          <button id="btnCollapseAll" class="btn btn-small">Collapse all</button>
-          <button id="btnCopyJson" class="btn btn-small">Copy JSON</button>
+          <button id="btnToggleAll" class="btn btn-small" aria-expanded="false">Expand all</button>
         </div>
       </div>
       <div id="manifestMeta" class="manifest-meta"></div>
@@ -109,10 +113,9 @@
         <div class="sub-head">
           <h3>CAWG <span id="cawgCount" class="count-badge count-neutral" hidden>0</span></h3>
           <div class="panel-actions">
+            <label class="chk"><input type="checkbox" id="chkCawgPerSegment" checked /> Per segment</label>
             <button id="btnCawgToggle" class="btn btn-small" aria-expanded="false"
                     aria-controls="cawgBody">Show details</button>
-            <label class="chk"><input type="checkbox" id="chkCawgPerSegment" checked /> Per segment</label>
-            <button id="btnCopyCawg" class="btn btn-small">Copy CAWG JSON</button>
           </div>
         </div>
         <div id="cawgEmpty" class="empty-state cawg-empty" hidden>

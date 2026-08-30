@@ -2,7 +2,7 @@
 // hence the named import.
 import { MediaPlayer } from 'dashjs';
 import { attachC2pa, C2paEvent, ERROR_CODE_MESSAGES } from '@qualabs/c2pa-live-dashjs-plugin';
-import { createJsonTree, toPlainJson } from './json-tree.js';
+import { createJsonTree } from './json-tree.js';
 import {
   extractC2paManifestBox,
   readManifestBox,
@@ -19,7 +19,6 @@ import {
 } from './messages.js';
 import { runDemo } from './demo.js';
 
-const STORAGE_KEY = 'c2pa-live-dashjs.lastUrl';
 const STATUS_WINDOW_MS = 15000; // time window in which issues shape the overall status
 const MAX_LOG_ENTRIES = 200;
 const MAX_PROBLEM_ENTRIES = 100;
@@ -34,10 +33,7 @@ const SEGMENT_FILE_RE = /\.(?:m4s|mp4|cmf[vat]|dash)$/i;
 const $ = (id) => document.getElementById(id);
 
 const els = {
-  form: $('streamForm'),
-  url: $('streamUrl'),
-  btnLoad: $('btnLoad'),
-  btnStop: $('btnStop'),
+  streamSelect: $('streamSelect'),
   video: $('video'),
   videoPlaceholder: $('videoPlaceholder'),
   errorBanner: $('errorBanner'),
@@ -58,9 +54,7 @@ const els = {
   pathText: $('pathText'),
   pathValue: $('pathValue'),
   btnCopyPath: $('btnCopyPath'),
-  btnExpandAll: $('btnExpandAll'),
-  btnCollapseAll: $('btnCollapseAll'),
-  btnCopyJson: $('btnCopyJson'),
+  btnToggleAll: $('btnToggleAll'),
   chkLiveUpdate: $('chkLiveUpdate'),
   cawgCount: $('cawgCount'),
   cawgSection: $('cawgSection'),
@@ -73,7 +67,6 @@ const els = {
   cawgHistoryWrap: $('cawgHistoryWrap'),
   cawgHistoryHint: $('cawgHistoryHint'),
   chkCawgPerSegment: $('chkCawgPerSegment'),
-  btnCopyCawg: $('btnCopyCawg'),
   problemsList: $('problemsList'),
   problemsEmpty: $('problemsEmpty'),
   problemsCount: $('problemsCount'),
@@ -178,7 +171,7 @@ function recomputePill() {
 
   let cls = 'none';
   let label = 'No stream';
-  let sub = 'Load a stream URL to start validation';
+  let sub = 'Pick a stream to start validation';
 
   const hasData = state.totalSegments > 0 || state.noC2paData || state.hadInitError;
   if (player || hasData) {
@@ -280,6 +273,7 @@ function renderManifest(manifest, source) {
   tree.render(manifest);
   els.manifestEmpty.hidden = true;
   els.manifestTree.hidden = false;
+  syncTreeToggle();
 
   const assertions = Array.isArray(manifest?.assertions) ? manifest.assertions.length : 0;
   const issuer = manifest?.signatureInfo?.issuer;
@@ -789,6 +783,7 @@ function resetUiState() {
 
   resetCawg();
   tree.clear();
+  setTreeToggle(false);
   els.manifestTree.hidden = true;
   els.manifestEmpty.hidden = false;
   els.manifestMeta.innerHTML = '';
@@ -846,7 +841,6 @@ function loadStream(url) {
   resetUiState();
 
   els.videoPlaceholder.hidden = true;
-  localStorage.setItem(STORAGE_KEY, url);
 
   player = MediaPlayer().create();
 
@@ -885,40 +879,100 @@ function loadStream(url) {
   player.on(ev.PLAYBACK_PAUSED, () => (els.playerState.textContent = 'Paused'));
 
   player.initialize(els.video, url, true);
-  els.btnStop.disabled = false;
-}
-
-function stopStream() {
-  teardown();
-  els.playerState.textContent = 'Stopped';
-  els.videoPlaceholder.hidden = false;
-  els.btnStop.disabled = true;
-  recomputePill();
 }
 
 // ---------------------------------------------------------------------------
 // UI wiring
 // ---------------------------------------------------------------------------
 
-els.form.addEventListener('submit', (ev) => {
-  ev.preventDefault();
-  const url = els.url.value.trim();
+// The picker is the only stream control - choosing an entry loads it straight
+// away, which is why there is no Load button. Streams come from the <option>
+// list in the HTML, so the demo line-up can change without rebuilding this
+// bundle.
+const CUSTOM_OPTION_ID = 'streamOptionCustom';
+let currentStreamUrl = '';
+
+// Puts the picker on the entry for `url`. A URL that is not in the list - a
+// hand written ?url= - gets an entry of its own, so the picker never claims to
+// be showing something other than what is actually playing.
+function selectStreamOption(url) {
+  const sel = els.streamSelect;
+  const match = [...sel.options].find((o) => o.value === url && !('newtab' in o.dataset));
+
+  if (match) {
+    sel.value = url;
+  } else {
+    let custom = $(CUSTOM_OPTION_ID);
+    if (!custom) {
+      custom = document.createElement('option');
+      custom.id = CUSTOM_OPTION_ID;
+      // after the "choose a stream" placeholder, ahead of the fixed line-up
+      sel.insertBefore(custom, sel.options[1] ?? null);
+    }
+    let label = 'Custom stream';
+    try {
+      label = `Custom stream (${new URL(url, location.href).host})`;
+    } catch {
+      /* not parseable as a URL, the plain label will do */
+    }
+    custom.value = url;
+    custom.textContent = label;
+    custom.title = url;
+    sel.value = url;
+  }
+
+  currentStreamUrl = url;
+}
+
+els.streamSelect.addEventListener('change', () => {
+  const opt = els.streamSelect.selectedOptions[0];
+  if (!opt) return;
+
+  // the glitch control panel is a page, not a stream: open it in a tab and put
+  // the picker back on whatever is playing
+  if ('newtab' in opt.dataset) {
+    window.open(opt.value, '_blank', 'noopener');
+    els.streamSelect.value = currentStreamUrl;
+    return;
+  }
+
+  const url = opt.value.trim();
   if (!url) return;
+  currentStreamUrl = url;
   loadStream(url);
 });
-
-els.btnStop.addEventListener('click', stopStream);
 
 els.btnCawgToggle.addEventListener('click', () => {
   state.cawgOpen = !state.cawgOpen;
   syncCawgVisibility();
 });
 
-els.btnExpandAll.addEventListener('click', () => tree.expandAll());
-els.btnCollapseAll.addEventListener('click', () => tree.collapseAll());
-els.btnCopyJson.addEventListener('click', () => {
+// One button for both directions. It is labelled with the action it performs,
+// not with the current state, so "Expand all" opens the tree and then turns
+// into "Collapse all".
+let treeExpanded = false;
+
+function setTreeToggle(expanded) {
+  treeExpanded = expanded;
+  els.btnToggleAll.textContent = expanded ? 'Collapse all' : 'Expand all';
+  els.btnToggleAll.setAttribute('aria-expanded', String(expanded));
+}
+
+// Read the state back off the tree rather than assuming it: a manifest can
+// already be fully open at the depth the tree seeds to, and single rows can be
+// folded by hand, either of which would leave a remembered flag lying. Every
+// container node carries a .jt-children wrapper whether it is open or not.
+function syncTreeToggle() {
+  const containers = [...els.manifestTree.querySelectorAll('.jt-children')].map((c) => c.parentElement);
+  const allOpen = containers.length > 0 && containers.every((n) => n.classList.contains('jt-expanded'));
+  setTreeToggle(allOpen);
+}
+
+els.btnToggleAll.addEventListener('click', () => {
   if (!tree.hasData) return;
-  copyText(JSON.stringify(toPlainJson(tree.value), null, 2), els.btnCopyJson);
+  if (treeExpanded) tree.collapseAll();
+  else tree.expandAll();
+  syncTreeToggle();
 });
 els.btnCopyPath.addEventListener('click', () => {
   if (state.selectedNode) copyText(state.selectedNode.path, els.btnCopyPath);
@@ -926,18 +980,6 @@ els.btnCopyPath.addEventListener('click', () => {
 
 els.chkCawgPerSegment.addEventListener('change', () => {
   els.cawgHistoryWrap.hidden = !els.chkCawgPerSegment.checked;
-});
-
-els.btnCopyCawg.addEventListener('click', () => {
-  const entry = state.cawgLatest;
-  if (!entry) return;
-  const payload = {
-    source: cawgSourceLabel(entry),
-    url: entry.url ?? null,
-    manifest: entry.manifestLabel ?? null,
-    assertions: Object.fromEntries(entry.assertions.map((a) => [a.label, toPlainJson(a.data)])),
-  };
-  copyText(JSON.stringify(payload, null, 2), els.btnCopyCawg);
 });
 
 els.chkOnlyProblems.addEventListener('change', () => {
@@ -959,17 +1001,92 @@ renderCounters();
 updateMeta();
 recomputePill();
 
-// ?url= (or ?src=) loads that stream right away, e.g.
-//   /?url=http://localhost/channel1/channel1.isml/.mpd
-// without a parameter the last URL used is put back into the input, but not
-// loaded
 const params = new URLSearchParams(location.search);
-const paramUrl = params.get('url') ?? params.get('src');
-const initialUrl = paramUrl ?? localStorage.getItem(STORAGE_KEY);
-if (initialUrl) {
-  els.url.value = initialUrl;
-  if (paramUrl) loadStream(paramUrl);
+
+// The picker contents come from streams.json next to the page, so a deployment
+// can change its line-up without rebuilding this bundle. The <option> list in
+// the HTML is the fallback and stays put if the file is missing, unreachable or
+// malformed - a demo with the wrong streams beats a demo with an empty picker.
+const STREAMS_URL = 'streams.json';
+const STREAMS_TIMEOUT_MS = 3000;
+
+// exact hostname, or a trailing '*' wildcard; '*' alone matches anything
+function hostMatches(pattern, host) {
+  if (typeof pattern !== 'string') return false;
+  if (pattern === '*') return true;
+  if (pattern.endsWith('*')) return host.startsWith(pattern.slice(0, -1));
+  return pattern === host;
 }
+
+// either a file holding one environment ({ items: [...] }) or one holding
+// several ({ profiles: [{ id, hosts, items }] }), first host match wins
+function pickStreamItems(config, wantedId) {
+  if (Array.isArray(config?.items)) return config.items;
+
+  const profiles = Array.isArray(config?.profiles) ? config.profiles : [];
+  const profile = wantedId
+    ? profiles.find((p) => p?.id === wantedId)
+    : profiles.find((p) => (p?.hosts ?? []).some((h) => hostMatches(h, location.hostname)));
+
+  return Array.isArray(profile?.items) ? profile.items : null;
+}
+
+function applyStreamItems(items) {
+  const sel = els.streamSelect;
+  const placeholder = sel.options[0];
+  sel.replaceChildren(placeholder);
+
+  for (const item of items) {
+    const opt = document.createElement('option');
+    if (item?.separator) {
+      opt.disabled = true;
+      opt.textContent = '──────────────';
+    } else {
+      if (!item?.url) continue;
+      const label = item.label ?? item.url;
+      // {host} lets one entry serve every machine the demo is set up on: the
+      // player, the glitch proxy and the ingest stats all sit on the host that
+      // served this page, only on different ports
+      opt.value = String(item.url).replace(/\{host\}/g, location.hostname);
+      // an arrow marks the entries that open a page instead of playing a stream
+      opt.textContent = item.newTab ? `${label} \u2197` : label;
+      if (item.newTab) opt.dataset.newtab = '';
+    }
+    sel.appendChild(opt);
+  }
+}
+
+async function loadStreamList() {
+  const ctrl = new AbortController();
+  // never let a hanging request hold up the stream the page was opened for
+  const timer = setTimeout(() => ctrl.abort(), STREAMS_TIMEOUT_MS);
+  try {
+    const res = await fetch(STREAMS_URL, { cache: 'no-store', signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const items = pickStreamItems(await res.json(), params.get('streams'));
+    if (!items?.length) throw new Error('no profile matched and no items given');
+    applyStreamItems(items);
+  } catch (err) {
+    console.warn(`[streams] keeping the built-in list, ${STREAMS_URL} not applied:`, err);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ?url= (or ?src=) loads that stream right away and moves the picker onto the
+// matching entry, e.g.
+//   /?url=https://example.cloudfront.net/channel1/channel1.isml/.mpd
+// without a parameter nothing is loaded and the picker stays on its placeholder.
+// The list is settled first so the parameter can land on a real entry.
+void (async () => {
+  await loadStreamList();
+
+  const paramUrl = (params.get('url') ?? params.get('src'))?.trim();
+  if (paramUrl) {
+    selectStreamOption(paramUrl);
+    loadStream(paramUrl);
+  }
+})();
 
 // Debug/demo access from the browser console:
 //   __c2paApp.demo()  – plays back a sample sequence including failures

@@ -133,22 +133,32 @@ code { font-family: var(--mono); font-size: 0.92em; }
   justify-content: flex-end;
 }
 
-.stream-form select,
-.stream-form input {
+.stream-form select {
   background: #fff;
   color: var(--text);
   border: 1px solid #cfd5de;
   border-radius: var(--radius-sm);
   padding: 7px 11px;
+  font-family: inherit;
   font-size: 13px;
 }
-.stream-form select { flex: 0 0 auto; max-width: 240px; }
-.stream-form input { flex: 1 1 auto; min-width: 200px; font-family: var(--mono); }
-.stream-form input:focus, .stream-form select:focus {
+
+/* the stream picker is the only control in the bar, so give it real presence
+   rather than the width a bare <select> would take from its longest option */
+.stream-select {
+  flex: 0 1 320px;
+  min-width: 220px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.stream-select:hover { border-color: var(--ard-blue); }
+.stream-select:focus-visible {
   outline: none;
   border-color: var(--ard-blue);
   box-shadow: 0 0 0 3px rgba(0, 74, 147, 0.16);
 }
+/* the rule between the streams and the glitch panel link */
+.stream-select option:disabled { color: #b4bbc6; }
 
 /* demosite button: white, dark blue ink, light blue hairline */
 .btn {
@@ -452,10 +462,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
 /* -------------------------------------------------------------- CAWG */
 
 .cawg { border-top: 1px solid var(--border); }
-/* collapsed the section is just its heading row, the per segment checkbox and
-   the copy button only apply to the details */
-.cawg.is-collapsed .chk,
-.cawg.is-collapsed #btnCopyCawg { display: none; }
+/* collapsed the section is just its heading row, the per segment checkbox only
+   applies to the details */
+.cawg.is-collapsed .chk { display: none; }
 
 .sub-head {
   display: flex;
@@ -723,4 +732,32 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
 @media (max-width: 700px) {
   .footer-logos { --partner-logo-height: 26px; gap: 14px 22px; }
+}
+
+/* ------------------------------------------------- Viewport-locked layout */
+
+/* On a desktop screen with the room for it - a 1920x1080 demo machine being
+   the case this exists for - pin the app to the viewport height so the partner
+   footer is on screen without scrolling. Header and footer keep their natural
+   height, the two columns share what is left and scroll internally, so nothing
+   becomes unreachable. Narrower or shorter screens keep normal page flow. */
+@media (min-width: 1101px) and (min-height: 800px) {
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+
+  .app-header, .app-footer { flex: none; }
+
+  .layout {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+  }
+  .col {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* 56vh of tree plus the segment log overflows the locked column, and the
+     column scrollbar is a worse place to lose the log than the tree's own */
+  .manifest-tree { max-height: 40vh; }
 }

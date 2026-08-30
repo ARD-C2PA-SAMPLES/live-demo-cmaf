@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "Stream picker contents. Edited here, not in index.html/iframe.html - the page",
+    "reads this file at startup, so a changed line-up needs no rebuild of app.bundle.js.",
+    "",
+    "The first profile whose 'hosts' matches the browser's hostname wins, so the same",
+    "file can be deployed to every environment unchanged. Patterns are exact names or",
+    "a trailing '*' wildcard; '*' on its own matches anything, so keep the catch-all",
+    "profile last. Override the choice for testing with ?streams=<id>.",
+    "",
+    "Item fields: 'label' and 'url'; 'newTab': true opens it in a tab instead of",
+    "playing it (control panels); { \"separator\": true } draws the divider rule.",
+    "",
+    "{host} in a url is replaced with the hostname the page was served from, so",
+    "the local profile follows the machine it runs on and needs no edit when that",
+    "machine's address changes. Write a literal address instead to pin it.",
+    "",
+    "A file holding a single environment works too - give it a top level \"items\"",
+    "array and leave \"profiles\" out. If this file is missing or malformed the picker",
+    "silently falls back to the <option> list baked into the HTML."
+  ],
+
+  "profiles": [
+    {
+      "id": "local",
+      "hosts": ["localhost", "127.0.0.1", "192.168.*", "10.*", "172.16.*"],
+      "items": [
+        { "label": "Livestream",                  "url": "https://{host}:8443/channel1/channel1.isml/.mpd" },
+        { "label": "Livestream with Glitch Sim.", "url": "https://{host}:8444/channel1/channel1.isml/.mpd" },
+        { "separator": true },
+        { "label": "Glitch Pane",          "url": "https://{host}:8444/glitch/", "newTab": true },
+        { "label": "Encoder Ingest Pane",  "url": "http://{host}:8080/stat",     "newTab": true }
+      ]
+    },
+    {
+      "id": "internet",
+      "hosts": ["*"],
+      "items": [
+        { "label": "WDR Live",                  "url": "https://d1xxal58esrfbz.cloudfront.net/channel1/channel1.isml/.mpd" },
+        { "label": "WDR Live with Glitch Sim.", "url": "https://d21g97cfbcpuxt.cloudfront.net/channel1/channel1.isml/.mpd" },
+        { "label": "CBC Live",                  "url": "https://d19gz2xgmiot3b.cloudfront.net/channel1/channel1.isml/.mpd" },
+        { "label": "CBC Live with Glitch Sim.", "url": "https://d1q6rzdaolqpdz.cloudfront.net/channel1/channel1.isml/.mpd" },
+        { "separator": true },
+        { "label": "Glitch Pane", "url": "https://d1q6rzdaolqpdz.cloudfront.net/glitch/", "newTab": true }
+      ]
+    }
+  ]
+}

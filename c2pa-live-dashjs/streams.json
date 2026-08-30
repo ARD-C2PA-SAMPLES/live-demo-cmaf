@@ -41,7 +41,8 @@
         { "label": "CBC Live",                  "url": "https://d19gz2xgmiot3b.cloudfront.net/channel1/channel1.isml/.mpd" },
         { "label": "CBC Live with Glitch Sim.", "url": "https://d1q6rzdaolqpdz.cloudfront.net/channel1/channel1.isml/.mpd" },
         { "separator": true },
-        { "label": "Glitch Pane", "url": "https://d1q6rzdaolqpdz.cloudfront.net/glitch/", "newTab": true }
+        { "label": "Glitch Pane WDR", "url": "https://d21g97cfbcpuxt.cloudfront.net/glitch/", "newTab": true },
+        { "label": "Glitch Pane CBC", "url": "https://d1q6rzdaolqpdz.cloudfront.net/glitch/", "newTab": true }
       ]
     }
   ]

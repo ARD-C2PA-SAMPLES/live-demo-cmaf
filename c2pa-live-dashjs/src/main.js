@@ -53,7 +53,6 @@ const els = {
   pathBar: $('pathBar'),
   pathText: $('pathText'),
   pathValue: $('pathValue'),
-  btnCopyPath: $('btnCopyPath'),
   btnToggleAll: $('btnToggleAll'),
   chkLiveUpdate: $('chkLiveUpdate'),
   cawgCount: $('cawgCount'),
@@ -142,27 +141,6 @@ function statusLabel(status) {
 
 function errorText(code) {
   return ERROR_CODE_MESSAGES?.[code] ?? code;
-}
-
-async function copyText(text, btn) {
-  try {
-    await navigator.clipboard.writeText(text);
-    flashButton(btn, 'Copied ✓');
-  } catch {
-    flashButton(btn, 'Copy failed');
-  }
-}
-
-function flashButton(btn, label) {
-  if (!btn) return;
-  const original = btn.dataset.label ?? btn.textContent;
-  btn.dataset.label = original;
-  btn.textContent = label;
-  btn.disabled = true;
-  setTimeout(() => {
-    btn.textContent = original;
-    btn.disabled = false;
-  }, 1200);
 }
 
 // ---------------------------------------------------------------------------
@@ -368,12 +346,12 @@ function cawgSourceLabel(entry) {
 
 // Long paths are shortened from the front, so that the distinguishing part
 // ("…referenced_assertions[1].hash") stays visible; the tooltip has the full key.
-const MAX_CAWG_KEY_CHARS = 22;
-
-function shortenCawgKey(key) {
-  return key.length <= MAX_CAWG_KEY_CHARS
-    ? key
-    : `…${key.slice(key.length - (MAX_CAWG_KEY_CHARS - 1))}`;
+// A flattened path is one long token, so a browser wraps it mid-word:
+// "signer_payload.referen / ced_assertions[0].url". A zero-width space before
+// each separator gives it somewhere better to break; the overflow-wrap in the
+// stylesheet stays the fallback for a run that has none.
+function breakableCawgKey(key) {
+  return key.replace(/([.[])/g, '\u200B$1');
 }
 
 function buildCawgAssertion(assertion) {
@@ -390,11 +368,9 @@ function buildCawgAssertion(assertion) {
   for (const { key, value } of flattenAssertionData(assertion.data)) {
     const row = document.createElement('div');
     const dt = document.createElement('dt');
-    dt.textContent = shortenCawgKey(key);
-    dt.title = key;
+    dt.textContent = breakableCawgKey(key);
     const dd = document.createElement('dd');
     dd.textContent = value;
-    dd.title = value;
     row.append(dt, dd);
     dl.appendChild(row);
   }
@@ -1003,9 +979,6 @@ els.btnToggleAll.addEventListener('click', () => {
   if (treeExpanded) tree.collapseAll();
   else tree.expandAll();
   syncTreeToggle();
-});
-els.btnCopyPath.addEventListener('click', () => {
-  if (state.selectedNode) copyText(state.selectedNode.path, els.btnCopyPath);
 });
 
 els.chkCawgPerSegment.addEventListener('change', () => {

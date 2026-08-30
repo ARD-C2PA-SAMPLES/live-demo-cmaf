@@ -241,16 +241,27 @@ function hexPreview(u8, max) {
   return hex;
 }
 
+// Same rule as the manifest tree: assertion values are shown in full, a
+// half printed hash being no use to anyone checking one. The cap is only a
+// guard against a pathologically large blob; CAWG values are hashes and
+// signatures and stay far below it.
+const MAX_INLINE_BYTES = 8192;
+
 function bytesLabel(u8) {
-  return `${u8.length} byte${u8.length === 1 ? '' : 's'} · 0x${hexPreview(u8, 8)}${u8.length > 8 ? '…' : ''}`;
+  const hex = hexPreview(u8, MAX_INLINE_BYTES);
+  const cut = u8.length > MAX_INLINE_BYTES ? '…' : '';
+  return `${u8.length} byte${u8.length === 1 ? '' : 's'} · 0x${hex}${cut}`;
 }
 
-const MAX_FLATTEN_DEPTH = 5;
+// Deep enough that a real CAWG assertion is flattened all the way down
+// rather than collapsing into "3 keys"; still a guard against runaway
+// recursion on malformed data.
+const MAX_FLATTEN_DEPTH = 24;
 
 /**
  * Flattens decoded assertion data into `[{ key, value }]` rows for the compact
  * key/value view — `signer_payload.referenced_assertions[0].url` and friends.
- * Byte strings become a length + hex preview instead of an array of numbers.
+ * Byte strings become a length + their full hex instead of an array of numbers.
  */
 export function flattenAssertionData(data, prefix = '', depth = 0, into = []) {
   if (data instanceof Uint8Array) {
@@ -258,7 +269,7 @@ export function flattenAssertionData(data, prefix = '', depth = 0, into = []) {
     return into;
   }
   if (ArrayBuffer.isView(data) || data instanceof ArrayBuffer) {
-    into.push({ key: prefix || '(value)', value: `${data.byteLength} bytes` });
+    into.push({ key: prefix || '(value)', value: bytesLabel(asBytes(data)) });
     return into;
   }
   if (Array.isArray(data)) {

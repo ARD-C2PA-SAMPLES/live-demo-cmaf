@@ -5,6 +5,13 @@
 
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
+// Leaf values are shown in full - a half printed hash or signature is not a
+// manifest anyone can check against anything. These caps only exist so a
+// pathologically large blob cannot lock the tab up; nothing in a C2PA
+// manifest comes close to them.
+const MAX_INLINE_BYTES = 8192;
+const MAX_INLINE_CHARS = 20000;
+
 function isBytes(v) {
   return v instanceof ArrayBuffer || (ArrayBuffer.isView(v) && !(v instanceof DataView));
 }
@@ -37,8 +44,8 @@ function bytesToHex(u8, max = Infinity) {
 function bytesPreview(v) {
   const u8 = toUint8(v);
   const name = v instanceof ArrayBuffer ? 'ArrayBuffer' : v.constructor.name;
-  const hex = bytesToHex(u8, 12);
-  return `${name}(${u8.length}) 0x${hex}${u8.length > 12 ? '…' : ''}`;
+  const hex = bytesToHex(u8, MAX_INLINE_BYTES);
+  return `${name}(${u8.length}) 0x${hex}${u8.length > MAX_INLINE_BYTES ? '…' : ''}`;
 }
 
 // Serializable copy: typed arrays are represented as hex objects so that
@@ -65,7 +72,9 @@ function leafDisplay(value, kind) {
     case 'null':
       return value === undefined ? 'undefined' : 'null';
     case 'string': {
-      const shown = value.length > 160 ? value.slice(0, 157) + '…' : value;
+      const shown = value.length > MAX_INLINE_CHARS
+        ? value.slice(0, MAX_INLINE_CHARS - 1) + '…'
+        : value;
       return JSON.stringify(shown);
     }
     case 'bytes':
@@ -245,7 +254,6 @@ export function createJsonTree(container, opts = {}) {
       const valEl = document.createElement('span');
       valEl.className = `jt-value jt-${kind}`;
       valEl.textContent = leafDisplay(value, kind);
-      if (kind === 'string' && value.length > 160 && value.length < 5000) valEl.title = value;
       row.appendChild(valEl);
 
       const activate = () => select(row, path, value, kind);

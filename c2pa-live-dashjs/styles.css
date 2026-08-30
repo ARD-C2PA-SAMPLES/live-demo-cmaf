@@ -521,23 +521,19 @@ code { font-family: var(--mono); font-size: 0.92em; }
   gap: 10px;
   align-items: baseline;
 }
-/* Long paths are shortened in JS (see shortenCawgKey), the ellipsis here only
-   catches very narrow panes. */
+/* Paths and values wrap instead of being cut off - a hash with an ellipsis
+   where its second half should be is not something anyone can verify. */
 .cawg-kv dt {
   font-family: var(--mono);
   font-size: 11.5px;
   color: var(--syn-key);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .cawg-kv dd {
   margin: 0;
   font-size: 12.5px;
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all;
 }
 
 .cawg-history-wrap { border-top: 1px solid var(--border-soft); }
@@ -550,7 +546,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 }
 .cawg-history-head span { text-transform: none; letter-spacing: 0; }
 
-.cawg-history { max-height: 190px; overflow-y: auto; font-size: 12px; }
+.cawg-history { max-height: 380px; overflow-y: auto; font-size: 12px; }
 
 .cawg-row { border-bottom: 1px solid var(--border-soft); }
 .cawg-row:last-child { border-bottom: none; }
@@ -572,10 +568,12 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .cawg-row > summary time { color: var(--muted); font-size: 11px; }
 .cawg-row-body:not(:empty) { padding: 6px 16px 10px 26px; background: var(--panel-2); }
 
+/* No height cap and no scroller of its own: expanded, the tree has to show
+   the whole manifest. It flows into the page - or, in the viewport-locked
+   layout below, into the column's scrollbar - instead of hiding most of
+   itself inside a nested one. */
 .manifest-tree {
   padding: 10px 16px;
-  max-height: 56vh;
-  overflow: auto;
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.65;
@@ -762,7 +760,10 @@ code { font-family: var(--mono); font-size: 0.92em; }
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-  /* 56vh of tree plus the segment log overflows the locked column, and the
-     column scrollbar is a worse place to lose the log than the tree's own */
-  .manifest-tree { max-height: 40vh; }
+  /* The tree keeps its full height here too and the column scrolls for it -
+     a second scrollbar inside the first is where the manifest went missing.
+     The panels have to keep their natural height for that: as flex items they
+     would otherwise shrink, and .panel's overflow:hidden then clips the bottom
+     of the tree away without so much as a scrollbar to find it behind. */
+  .col > .panel { flex: none; }
 }

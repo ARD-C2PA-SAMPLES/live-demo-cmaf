@@ -3,7 +3,8 @@
 Static website for playing DASH live streams with **real-time C2PA validation**
 (Content Credentials). Playback via [dash.js](https://github.com/Dash-Industry-Forum/dash.js),
 validation via [@qualabs/c2pa-live-dashjs-plugin](https://www.npmjs.com/package/@qualabs/c2pa-live-dashjs-plugin)
-(SVTA Common Media Library, C2PA spec §19 “Live Video”).
+(SVTA Common Media Library). The implemented spec is C2PA 2.4, §19.4
+“Verifiable Segment Info” — see [below](#c2pa-spec-194--verifiable-segment-info).
 
 ## Features
 
@@ -25,6 +26,68 @@ validation via [@qualabs/c2pa-live-dashjs-plugin](https://www.npmjs.com/package/
   segment timeline, per-status counters, segment log with an “Issues only” filter
 - Detection of the validation method: **VSI** (session keys in the init segment) or
   **Manifest Box** (manifest per segment)
+
+## C2PA spec §19.4 — Verifiable Segment Info
+
+This is the part of the specification the player implements. C2PA §19 (“Live
+Video”) offers two methods of making a live stream verifiable; §19.4 is the one
+built for continuous streams:
+
+| | §19.3 Per-segment C2PA Manifest Box | §19.4 Verifiable Segment Info (VSI) |
+|---|---|---|
+| Carrier | a full C2PA manifest (`uuid` box) in every segment | a small signed structure in an `emsg` box per segment |
+| Signed by | the claim generator’s X.509 certificate | a **session key** whose public half is delivered in the manifest |
+| Overhead | one manifest per segment | a few hundred bytes per segment |
+
+**Definition.** A *verifiable-segment-info* is a `COSE_Sign1_Tagged` structure
+whose payload is a CBOR-serialised `segment-info-map`. The payload is attached
+(never detached), the protected header carries the signature algorithm (`alg`,
+optionally `iat` as the claimed time of signing), and the unprotected header
+carries the session key identifier (`kid`). It gives each segment enough
+information to be validated **on its own**, without re-reading a whole manifest.
+
+```cddl
+verifiable-segment-info = COSE_Sign1_Tagged
+
+segment-info-map = {
+    "sequenceNumber" => uint,               ; increases by 1 per segment, never repeats or decreases
+    "bmffHash"       => bmff-hash-map,      ; c2pa.hash.bmff.v3 over the segment, C2PA emsg boxes excluded
+    "manifestId"     => tstr,               ; identifier of the currently active manifest
+    ? "manifestUri"  => hashed-ext-uri-map  ; optional URL to fetch that manifest from
+}
+```
+
+**Transport.** The structure travels in the segment’s `emsg` box with `version`
+0, `scheme_id_uri` `urn:c2pa:verifiable-segment-info`, `value` `"fseg"`,
+`presentation_time_delta` 0, `timescale`/`event_duration` covering the whole
+segment, and `message_data` holding the encoded verifiable-segment-info. The
+`bmffHash` deliberately excludes those C2PA `emsg` boxes via an exclusion-map
+(`xpath` `/emsg`, `data` offset 0, value `urn:c2pa:verifiable-segment-info`), so
+that the hash covers the media and not the signature carrying it.
+
+**Session keys (§19.4.4).** Segments are *not* signed with the claim
+generator’s certificate but with a short-lived asymmetric session key. The
+public halves arrive in a session keys assertion inside the C2PA manifest of the
+**init segment**, and may be rotated later via further init segments, a manifest
+box, or the `manifestUri`. A validator picks the key by `kid`, then checks the
+manifest identifier against `manifestId`.
+
+**Validation (§19.7.3).** Per segment, a validator verifies the COSE signature
+with the session key, that `sequenceNumber` is not below the key’s
+`minSequenceNumber`, that the presentation time is inside the key’s validity
+period, and that the segment hash matches `bmffHash`. Failures surface as
+`livevideo.segment.invalid`; a missing, malformed, or expired session key (or a
+revoked signing certificate) as `livevideo.sessionkey.invalid` — both codes are
+shown verbatim in the “Validation issues” panel.
+
+**What that means for this player.** Signature and hash checking happen inside
+`@qualabs/c2pa-live-dashjs-plugin`; this site visualises the result. The mode is
+derived from the `INIT_PROCESSED` event: if it reports `sessionKeysCount > 0`,
+the stream uses **VSI**, otherwise **Manifest Box** (see `state.mode` in
+[src/main.js](src/main.js)) — the key count is shown next to it. Under VSI the
+plugin only reports the manifest of the init segment, which is why
+[src/cawg.js](src/cawg.js) reads the per-segment manifest boxes separately —
+see [CAWG per segment](#cawg-per-segment).
 
 ## Quick start
 
@@ -172,6 +235,6 @@ c2patool -d segment.mp4                               # → "cawg.metadata": { �
 
 - [@qualabs/c2pa-live-dashjs-plugin (npm)](https://www.npmjs.com/package/@qualabs/c2pa-live-dashjs-plugin)
 - [C2PA Live Video Toolkit (GitHub)](https://github.com/qualabs/c2pa-live-video-toolkit)
-- [C2PA specification 2.3, §19 Live Video](https://c2pa.org/specifications/specifications/2.3/specs/C2PA_Specification.html#_live_video)
+- [C2PA specification 2.4, §19.4 Verifiable Segment Info](https://spec.c2pa.org/specifications/specifications/2.4/specs/C2PA_Specification.html#verifiable_segment_info)
 - [Qualabs: C2PA for live video](https://www.qualabs.com/our-work/c2pa-for-live-video-how-to-sign-and-authenticate-content-in-real-time)
 - [dash.js (DASH Industry Forum)](https://github.com/Dash-Industry-Forum/dash.js)

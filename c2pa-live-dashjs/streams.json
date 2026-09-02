@@ -38,8 +38,18 @@
       "items": [
         { "label": "WDR Live",                  "url": "https://d1xxal58esrfbz.cloudfront.net/channel1/channel1.isml/.mpd" },
         { "label": "WDR Live with Glitch Sim.", "url": "https://d21g97cfbcpuxt.cloudfront.net/channel1/channel1.isml/.mpd" },
+
         { "label": "CBC Live",                  "url": "https://d19gz2xgmiot3b.cloudfront.net/channel1/channel1.isml/.mpd" },
         { "label": "CBC Live with Glitch Sim.", "url": "https://d1q6rzdaolqpdz.cloudfront.net/channel1/channel1.isml/.mpd" },
+
+        { "separator": true },
+
+        { "label": "Security4Media Player WDR Live", "url": "https://security4media.github.io/c2pa-video-player/?video=https://d1xxal58esrfbz.cloudfront.net/channel1/channel1.isml/.mpd", "newTab": true },
+        { "label": "Security4Media Player WDR Live with Glitch Sim", "url": "https://security4media.github.io/c2pa-video-player/?video=https://d21g97cfbcpuxt.cloudfront.net/channel1/channel1.isml/.mpd", "newTab": true },
+
+        { "label": "Security4Media Player CBC Live", "url": "https://security4media.github.io/c2pa-video-player/?video=https://d19gz2xgmiot3b.cloudfront.net/channel1/channel1.isml/.mpd", "newTab": true },
+        { "label": "Security4Media Player CBC Live with Glitch Sim", "url": "https://security4media.github.io/c2pa-video-player/?video=https://d1q6rzdaolqpdz.cloudfront.net/channel1/channel1.isml/.mpd", "newTab": true },
+
         { "separator": true },
         { "label": "Glitch Pane WDR", "url": "https://d21g97cfbcpuxt.cloudfront.net/glitch/", "newTab": true },
         { "label": "Glitch Pane CBC", "url": "https://d1q6rzdaolqpdz.cloudfront.net/glitch/", "newTab": true }

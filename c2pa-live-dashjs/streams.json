@@ -42,6 +42,8 @@
         { "label": "CBC Live",                  "url": "https://d19gz2xgmiot3b.cloudfront.net/channel1/channel1.isml/.mpd" },
         { "label": "CBC Live with Glitch Sim.", "url": "https://d1q6rzdaolqpdz.cloudfront.net/channel1/channel1.isml/.mpd" },
 
+        { "label": "Virtual Channel - Switch sources.", "url": "https://demo.unified-streaming.com/vc-c2pa-ibc/bbb_wdr_colourbars.isml/.mpd" },
+
         { "separator": true },
 
         { "label": "Security4Media Player WDR Live", "url": "https://security4media.github.io/c2pa-video-player/?video=https://d1xxal58esrfbz.cloudfront.net/channel1/channel1.isml/.mpd&label=on&consent=per-segment", "newTab": true },

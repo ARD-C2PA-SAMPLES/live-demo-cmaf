@@ -104,6 +104,7 @@ const state = {
   hadInitError: false,
   selectedNode: null,
   cawgLatest: null, // last segment whose manifest carried cawg.* assertions
+  cawgCurrent: null, // null until a media segment was read, then 'present' | 'absent'
   cawgCount: 0,
   cawgSeen: new Set(), // "<kind>|<mediaType>|<segmentNumber>" of already reported segments
   cawgSig: null, // signature of the CAWG data currently rendered in the detail block
@@ -394,6 +395,31 @@ function renderCawgDetail(entry) {
   }
 }
 
+// Why a media segment ended up without CAWG data - the second line of the
+// notice in the detail block and the tooltip of the marker row.
+const CAWG_ABSENT_REASONS = {
+  nobox: 'The segment carries no C2PA manifest box.',
+  nocawg: 'The C2PA manifest box of the segment has no cawg.* assertions.',
+  unreadable: 'The C2PA manifest box of the segment could not be parsed.',
+};
+
+function renderCawgAbsent(entry, reason) {
+  els.cawgSource.textContent = `${cawgSourceLabel(entry)} · ${fmtTime(entry.timestamp)}`;
+  els.cawgSource.title = entry.url ?? '';
+
+  // The notice is only rebuilt when it changes; the source line above moves
+  // on with every segment.
+  const current = els.cawgAssertions.firstElementChild;
+  if (current?.classList.contains('cawg-absent') && current.dataset.reason === reason) return;
+  els.cawgAssertions.innerHTML = '';
+  const note = document.createElement('div');
+  note.className = 'cawg-absent';
+  note.dataset.reason = reason;
+  note.innerHTML = '<b>No CAWG assertions in this segment</b><small></small>';
+  note.querySelector('small').textContent = CAWG_ABSENT_REASONS[reason] ?? '';
+  els.cawgAssertions.appendChild(note);
+}
+
 function addCawgHistoryRow(entry) {
   const row = document.createElement('details');
   row.className = 'cawg-row';
@@ -417,11 +443,31 @@ function addCawgHistoryRow(entry) {
     for (const assertion of entry.assertions) body.appendChild(buildCawgAssertion(assertion));
   });
 
+  prependCawgHistoryRow(row);
+}
+
+// One muted row marks where the CAWG data stops. A row for every segment
+// without it would push the rows that carry data out of the capped list
+// within a minute on a channel that alternates signed and unsigned sources.
+function addCawgGapRow(entry, reason) {
+  const row = document.createElement('div');
+  row.className = 'cawg-row cawg-row-none';
+  row.innerHTML = `<span class="cawg-row-seg"></span><span class="cawg-row-type"></span><span class="cawg-row-sum">no CAWG assertions</span><time>${fmtTime(entry.timestamp)}</time>`;
+  row.querySelector('.cawg-row-seg').textContent = `#${entry.segmentNumber}`;
+  row.querySelector('.cawg-row-type').textContent = entry.mediaType
+    ? (MEDIA_TYPE_LABELS[entry.mediaType] ?? entry.mediaType)
+    : '';
+  row.title = CAWG_ABSENT_REASONS[reason] ?? '';
+  prependCawgHistoryRow(row);
+}
+
+function prependCawgHistoryRow(row) {
   els.cawgHistory.prepend(row);
   while (els.cawgHistory.children.length > MAX_CAWG_ENTRIES) {
     els.cawgHistory.removeChild(els.cawgHistory.lastChild);
   }
   els.cawgHistoryHint.textContent = `· ${state.cawgCount} segment${state.cawgCount === 1 ? '' : 's'} with CAWG data`;
+  syncCawgVisibility();
 }
 
 function addCawgEntry(entry) {
@@ -439,11 +485,35 @@ function addCawgEntry(entry) {
 
   els.cawgCount.textContent = String(state.cawgCount);
   els.cawgCount.hidden = false;
-  syncCawgVisibility();
 
-  renderCawgDetail(entry);
+  // The detail block follows the media segments. An init segment says nothing
+  // about the media segments to come, so it only fills the block while no
+  // media segment has been read yet.
+  if (entry.kind === 'media' || state.cawgCurrent === null) {
+    state.cawgCurrent = 'present';
+    renderCawgDetail(entry);
+  }
+  syncCawgVisibility();
   addCawgHistoryRow(entry);
   return true;
+}
+
+// A media segment without CAWG data takes over the detail block. On a channel
+// that switches between signed and unsigned sources the block would otherwise
+// keep showing the CAWG data of the last signed source as if it were current.
+// Init segments are left out: in a VSI stream they never carry cawg.*, and
+// every source switch begins with one. "Current" follows the download, not
+// the playhead - dash.js fetches a buffer's worth of segments ahead, so the
+// block changes a few segments before the picture does.
+function noteCawgAbsent(meta, reason) {
+  if (meta.kind !== 'media') return;
+  const entry = { ...meta, timestamp: Date.now() };
+  const changed = state.cawgCurrent !== 'absent';
+  state.cawgCurrent = 'absent';
+  state.cawgSig = null; // the next segment with data rebuilds the values
+  renderCawgAbsent(entry, reason);
+  if (changed) addCawgGapRow(entry, reason);
+  syncCawgVisibility();
 }
 
 // Reads the CAWG assertions of a single segment. Runs outside the interceptor
@@ -454,14 +524,17 @@ function parseCawgBox(box, meta) {
     manifest = readManifestBox(box);
   } catch (error) {
     console.warn('[cawg] manifest box could not be parsed', error);
+  }
+  if (!manifest) {
+    noteCawgAbsent(meta, 'unreadable');
     return;
   }
-  if (!manifest) return;
-  const added = addCawgEntry({
-    ...meta,
-    manifestLabel: manifest.label,
-    assertions: pickCawgAssertions(manifest.assertions),
-  });
+  const assertions = pickCawgAssertions(manifest.assertions);
+  if (assertions.length === 0) {
+    noteCawgAbsent(meta, 'nocawg');
+    return;
+  }
+  const added = addCawgEntry({ ...meta, manifestLabel: manifest.label, assertions });
   // From now on the segment bytes are the single source — the plugin numbers
   // its segments differently in places, which would duplicate entries.
   if (added) state.cawgFromSegments = true;
@@ -477,18 +550,6 @@ function captureCawgSegment(response) {
   const kind = SEGMENT_KINDS[request.type ?? ''];
   if (!kind) return;
 
-  // Copy the C2PA box out while the buffer is still intact — dash.js transfers
-  // it to MSE once the interceptor chain has resolved. Only the box is copied,
-  // not the (up to several MB) segment.
-  let box = null;
-  try {
-    box = extractC2paManifestBox(data);
-  } catch (error) {
-    console.warn('[cawg] C2PA box could not be read', error);
-    return;
-  }
-  if (!box) return;
-
   const url = response.request?.url;
   const meta = {
     kind,
@@ -497,6 +558,24 @@ function captureCawgSegment(response) {
     segmentNumber: segmentNumberFromUrl(url) ?? (request.index ?? 0) + 1,
     url,
   };
+
+  // Copy the C2PA box out while the buffer is still intact — dash.js transfers
+  // it to MSE once the interceptor chain has resolved. Only the box is copied,
+  // not the (up to several MB) segment.
+  let box = null;
+  try {
+    box = extractC2paManifestBox(data);
+  } catch (error) {
+    console.warn('[cawg] C2PA box could not be read', error);
+    queueMicrotask(() => noteCawgAbsent(meta, 'unreadable'));
+    return;
+  }
+  if (!box) {
+    // A segment of an unsigned source. Reported outside the interceptor chain
+    // like the parsed ones, so the entries keep the order of the downloads.
+    queueMicrotask(() => noteCawgAbsent(meta, 'nobox'));
+    return;
+  }
   queueMicrotask(() => parseCawgBox(box, meta));
 }
 
@@ -517,27 +596,31 @@ function attachCawgReader(dashPlayer) {
 // only rendered while it is expanded - collapsed it takes a single line, so
 // the manifest tree underneath gets the room.
 function syncCawgVisibility() {
-  const hasData = state.cawgCount > 0;
+  // The block has something to say once a media segment was read: CAWG data,
+  // or the notice that the current segment carries none.
+  const hasData = state.cawgCount > 0 || state.cawgCurrent !== null;
   els.cawgSection.classList.toggle('is-collapsed', !state.cawgOpen);
   els.cawgBody.hidden = !state.cawgOpen || !hasData;
   els.cawgEmpty.hidden = !state.cawgOpen || hasData;
+  els.cawgHistoryWrap.hidden = !els.chkCawgPerSegment.checked || els.cawgHistory.children.length === 0;
   els.btnCawgToggle.textContent = state.cawgOpen ? 'Hide details' : 'Show details';
   els.btnCawgToggle.setAttribute('aria-expanded', String(state.cawgOpen));
 }
 
 function resetCawg() {
   state.cawgLatest = null;
+  state.cawgCurrent = null;
   state.cawgCount = 0;
   state.cawgSeen.clear();
   state.cawgSig = null;
   state.cawgFromSegments = false;
   els.cawgCount.hidden = true;
   els.cawgCount.textContent = '0';
-  syncCawgVisibility();
   els.cawgSource.textContent = '';
   els.cawgAssertions.innerHTML = '';
   els.cawgHistory.innerHTML = '';
   els.cawgHistoryHint.textContent = '';
+  syncCawgVisibility();
 }
 
 // ---------------------------------------------------------------------------
@@ -809,6 +892,9 @@ function resetUiState() {
 }
 
 function teardown() {
+  stopRecovery();
+  stopRestart();
+  restartAttempts = 0;
   if (c2pa) {
     try {
       c2pa.detach();
@@ -842,9 +928,146 @@ function showPlayerError(message) {
   els.playerState.textContent = 'Error';
 }
 
+// ---------------------------------------------------------------------------
+// Live-stream recovery
+// ---------------------------------------------------------------------------
+
+// Unified Origin answers with a type="static" MPD as soon as its publishing
+// point is not "started" (encoder disconnect, EOS, restart). dash.js follows
+// DASH-IF IOP 4.6.4 and takes that as the end of the live presentation: it
+// stops refreshing the MPD, plays the buffer out and ends - without raising an
+// error. A refreshManifest() does not help, the player keeps its internal
+// "finished" state. So the origin is polled until its MPD is dynamic again and
+// the source is attached anew (see reattachStream).
+const RECOVERY_POLL_MS = 1000;
+const RECOVERY_GIVE_UP_MS = 120000;
+
+let recovery = null; // { timer, startedAt, url } while a recovery is running
+let streamIsLive = false;
+
+async function fetchMpdType(url) {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  const m = text.match(/<MPD[^>]*\stype="(\w+)"/);
+  return m ? m[1] : null;
+}
+
+function stopRecovery() {
+  if (!recovery) return;
+  clearTimeout(recovery.timer);
+  recovery = null;
+}
+
+function startRecovery(reason) {
+  if (recovery || restart || !player || !currentStreamUrl) return;
+  const url = currentStreamUrl;
+  const startedAt = Date.now();
+  addProblem({
+    badge: 'Player',
+    badgeStatus: 'unverified',
+    title: 'Origin signalled the end of the live stream',
+    detailLines: [reason, 'Polling the manifest until it is dynamic again, then re-attaching the stream.'],
+  });
+  els.playerState.textContent = 'Reconnecting …';
+
+  const poll = async () => {
+    if (!recovery || recovery.url !== url) return;
+    let type = null;
+    try {
+      type = await fetchMpdType(url);
+    } catch {
+      /* transient network error, keep polling */
+    }
+    if (!recovery || recovery.url !== url) return; // torn down meanwhile
+    if (type === 'dynamic') {
+      recovery = null;
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      addProblem({
+        badge: 'Player',
+        badgeStatus: 'unverified',
+        title: `Manifest is dynamic again after ${seconds} s, stream re-attached`,
+      });
+      reattachStream(url);
+      return;
+    }
+    if (Date.now() - startedAt > RECOVERY_GIVE_UP_MS) {
+      recovery = null;
+      showPlayerError('Live stream ended: the manifest stayed static for two minutes');
+      return;
+    }
+    recovery.timer = setTimeout(poll, RECOVERY_POLL_MS);
+  };
+  recovery = { timer: setTimeout(poll, RECOVERY_POLL_MS), startedAt, url };
+}
+
+// ---------------------------------------------------------------------------
+// Restart after a failed init segment
+// ---------------------------------------------------------------------------
+
+// dash.js gives up on an init segment once its retries are spent and reports
+// error 28 (DOWNLOAD_ERROR_ID_INITIALIZATION) - and then leaves the period
+// without one: it cannot start, and playback stalls at its boundary. Seen on
+// the source-switching channel, where the failing URL joined the host of one
+// period with the init file name of another: dash.js resolves BaseURLs by
+// period position, and a period that has already dropped out of the MPD keeps
+// the position it had. Attaching the source anew reloads the MPD and rebuilds
+// the periods, so playback is restarted - with a growing delay in case the
+// same error comes straight back.
+const RESTART_ERROR_CODES = new Set([28]);
+const RESTART_MIN_DELAY_MS = 2000;
+const RESTART_MAX_DELAY_MS = 30000;
+
+let restart = null; // { timer, url } while a restart is pending
+let restartAttempts = 0; // restarts since playback last ran
+
+function stopRestart() {
+  if (!restart) return;
+  clearTimeout(restart.timer);
+  restart = null;
+}
+
+function scheduleRestart(reason) {
+  if (restart || !player || !currentStreamUrl) return;
+  stopRecovery();
+  const url = currentStreamUrl;
+  const attempt = ++restartAttempts;
+  const delay = Math.min(RESTART_MIN_DELAY_MS * 2 ** (attempt - 1), RESTART_MAX_DELAY_MS);
+  const seconds = Math.round(delay / 1000);
+  addProblem({
+    badge: 'Player',
+    badgeStatus: 'unverified',
+    title: `Restarting playback in ${seconds} s (attempt ${attempt})`,
+    detailLines: [reason, 'An init segment could not be loaded; the stream is attached anew.'],
+  });
+  els.errorBanner.textContent = `${reason} · restarting playback in ${seconds} s`;
+  els.errorBanner.hidden = false;
+  els.playerState.textContent = `Restarting in ${seconds} s …`;
+  const timer = setTimeout(() => {
+    if (!restart || restart.url !== url || !player) return;
+    restart = null;
+    reattachStream(url);
+  }, delay);
+  restart = { timer, url };
+}
+
+// attachSource() keeps the player instance, so the C2PA plugin, the CAWG
+// interceptor and the event handlers stay in place; the plugin only has its
+// session keys and sequence state cleared for the init segments to come.
+function reattachStream(url) {
+  try {
+    c2pa?.reset();
+  } catch {
+    /* plugin may already be detached */
+  }
+  els.playerState.textContent = 'Restarting …';
+  player.attachSource(url);
+}
+
 function loadStream(url) {
   teardown();
   resetUiState();
+  streamIsLive = false;
 
   els.videoPlaceholder.hidden = true;
 
@@ -864,7 +1087,13 @@ function loadStream(url) {
   player.on(ev.ERROR, (e) => {
     const err = e?.error ?? {};
     const msg = err.message ?? String(err);
-    showPlayerError(`Player error${err.code ? ` (${err.code})` : ''}: ${msg}`);
+    const text = `Player error${err.code ? ` (${err.code})` : ''}: ${msg}`;
+    if (RESTART_ERROR_CODES.has(err.code)) {
+      // the init segments of one period fail together; one restart covers them
+      scheduleRestart(text);
+      return;
+    }
+    showPlayerError(text);
     addProblem({
       badge: 'Player',
       badgeStatus: 'invalid',
@@ -874,13 +1103,24 @@ function loadStream(url) {
   });
   player.on(ev.STREAM_INITIALIZED, () => {
     els.playerState.textContent = 'Stream initialized';
+    if (restartAttempts > 0) els.errorBanner.hidden = true; // the restart got the stream back
     try {
-      els.liveBadge.hidden = !player.isDynamic();
+      streamIsLive = player.isDynamic();
+      els.liveBadge.hidden = !streamIsLive;
     } catch {
       /* isDynamic is only available after the manifest has loaded */
     }
   });
-  player.on(ev.PLAYBACK_PLAYING, () => (els.playerState.textContent = 'Playing'));
+  player.on(ev.DYNAMIC_TO_STATIC, () =>
+    startRecovery('dash.js received a type="static" MPD (DYNAMIC_TO_STATIC): Unified Origin reports its publishing point as stopped.')
+  );
+  player.on(ev.PLAYBACK_ENDED, () => {
+    if (streamIsLive) startRecovery('Playback reached the end of the live presentation (PLAYBACK_ENDED).');
+  });
+  player.on(ev.PLAYBACK_PLAYING, () => {
+    els.playerState.textContent = 'Playing';
+    restartAttempts = 0; // playback is back, the next restart starts with the short delay again
+  });
   player.on(ev.PLAYBACK_WAITING, () => (els.playerState.textContent = 'Buffering …'));
   player.on(ev.PLAYBACK_PAUSED, () => (els.playerState.textContent = 'Paused'));
 
@@ -981,9 +1221,7 @@ els.btnToggleAll.addEventListener('click', () => {
   syncTreeToggle();
 });
 
-els.chkCawgPerSegment.addEventListener('change', () => {
-  els.cawgHistoryWrap.hidden = !els.chkCawgPerSegment.checked;
-});
+els.chkCawgPerSegment.addEventListener('change', syncCawgVisibility);
 
 els.chkOnlyProblems.addEventListener('change', () => {
   els.logList.classList.toggle('only-problems', els.chkOnlyProblems.checked);

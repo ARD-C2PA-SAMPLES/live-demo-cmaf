@@ -26,6 +26,23 @@ validation via [@qualabs/c2pa-live-dashjs-plugin](https://www.npmjs.com/package/
   segment timeline, per-status counters, segment log with an “Issues only” filter
 - Detection of the validation method: **VSI** (session keys in the init segment) or
   **Manifest Box** (manifest per segment)
+- **Live-stream recovery**: Unified Origin answers with a `type="static"` MPD while
+  its publishing point is not "started" (encoder disconnect, EOS, restart), and dash.js
+  takes that as the end of the live stream (DASH-IF IOP 4.6.4) — it stops refreshing the
+  manifest and ends playback without an error. The player then polls the MPD until it is
+  dynamic again and re-attaches the stream; both steps show up as “Player” entries in the
+  validation issues
+- **Restart after a failed init segment**: when dash.js reports error 28 (an init segment
+  “is not available”) the stream is attached anew after 2 s, with the delay doubling up to
+  30 s while the error keeps coming back, and the delay resetting once playback runs again.
+  Seen on the source-switching channel, where dash.js built the init URL of a period that had
+  already left the MPD from the BaseURL of another period. Each restart is a “Player” entry
+  in the validation issues
+- **The CAWG block follows the current segment**: a media segment without CAWG assertions
+  (an unsigned source, or a manifest box without `cawg.*`) replaces the detail block with a
+  notice instead of leaving the previous source's data on screen; a muted marker row in the
+  per-segment list shows where the data stopped. “Current” means the last segment
+  downloaded, which is a few segments ahead of the picture because of the player buffer
 
 ## C2PA spec §19.4 — Verifiable Segment Info
 

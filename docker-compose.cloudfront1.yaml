@@ -43,7 +43,7 @@ services:
       - UspLicenseKey
       - PUB_POINT_NAME=channel1
       - LOG_LEVEL=warn
-      - PUB_POINT_OPTS=--archiving=1 --archive_length=3600 --archive_segment_length=1800 --dvr_window_length=30 --restart_on_encoder_reconnect --mpd.min_buffer_time=96/25 --mpd.suggested_presentation_delay=96/25 --hls.minimum_fragment_length=96/25 --mpd.minimum_fragment_length=96/25 --mpd.segment_template=number_timeline --hls.client_manifest_version=4 --hls.fmp4
+      - PUB_POINT_OPTS=--archiving=1 --archive_length=3600 --archive_segment_length=1800 --dvr_window_length=30 --restart_on_encoder_reconnect --mpd.min_buffer_time=192/25 --mpd.suggested_presentation_delay=192/25 --hls.minimum_fragment_length=96/25 --mpd.minimum_fragment_length=96/25 --mpd.segment_template=number_timeline --hls.client_manifest_version=4 --hls.fmp4
       # Trusted Media (C2PA): AIX document used to sign the live stream,
       # generate it with ./generate-certs-and-aix.sh (see README)
       - AIX_FILE=/opt/aix/minimal.aix

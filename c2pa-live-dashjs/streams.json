@@ -28,6 +28,9 @@
         { "label": "Livestream",                  "url": "https://{host}:8443/channel1/channel1.isml/.mpd" },
         { "label": "Livestream with Glitch Sim.", "url": "https://{host}:8444/channel1/channel1.isml/.mpd" },
         { "separator": true },
+        { "label": "Security4Media Player Livestream",                  "url": "https://{host}:8443/ebuplayer/?video=https://{host}:8443/channel1/channel1.isml/.mpd&label=on&consent=per-segment", "newTab": true },
+        { "label": "Security4Media Player Livestream with Glitch Sim.", "url": "https://{host}:8444/ebuplayer/?video=https://{host}:8444/channel1/channel1.isml/.mpd&label=on&consent=per-segment", "newTab": true },
+        { "separator": true },
         { "label": "Glitch Pane",          "url": "https://{host}:8444/glitch/", "newTab": true },
         { "label": "Encoder Ingest Pane",  "url": "http://{host}:8080/stat",     "newTab": true }
       ]

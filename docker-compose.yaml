@@ -59,6 +59,32 @@ services:
     restart: unless-stopped
     networks:
       - default
+  # Second player on the same stream: the EBU / Security4Media Content
+  # Credentials player (video.js, validates with c2pa-web), as the prebuilt
+  # image from https://github.com/Security4Media/c2pa-video-player - nothing
+  # is built here. Same localhost-only caveat as above:
+  # http://localhost:8091/?video=http://localhost/channel1/channel1.isml/.mpd&label=on
+  # On any other address use the proxies below, which publish it under
+  # /ebuplayer/ next to the stream (tls/nginx.conf has the details):
+  # https://<host>:8443/ebuplayer/?video=https://<host>:8443/channel1/channel1.isml/.mpd&label=on
+  #
+  # The image is published for linux/amd64 only. On Apple Silicon Docker
+  # Desktop runs it under emulation, which is fine for a static nginx.
+  ebu-player:
+    image: ghcr.io/security4media/c2pa-player:manual-1788549573
+    platform: linux/amd64
+    ports:
+      - ${EBU_PLAYER_PORT:-8091}:8080
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1, not localhost: busybox wget tries ::1 first and the
+      # image's nginx listens on IPv4 only
+      test: wget -q -O /dev/null http://127.0.0.1:8080/
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - default
   # HTTPS entry point, needed to open the player anywhere but on localhost:
   # crypto.subtle is only exposed in a secure context, and without it every
   # segment fails validation with "Internal validation error
@@ -68,6 +94,7 @@ services:
   # load the MPD as mixed content and no CORS is involved:
   #   https://<host>:8443/            -> c2pa-player
   #   https://<host>:8443/channel1/   -> live-origin
+  #   https://<host>:8443/ebuplayer/  -> ebu-player (plus /assets/, see the conf)
   #
   # Opt in, because it needs the locally generated certificate:
   #   ./tls/generate-tls-cert.sh      (once, works offline)
@@ -85,6 +112,11 @@ services:
     depends_on:
       live-origin:
         condition: service_healthy
+      # nginx resolves the upstream names once, when it starts
+      c2pa-player:
+        condition: service_started
+      ebu-player:
+        condition: service_started
     healthcheck:
       test: wget -q --no-check-certificate -O /dev/null https://localhost/
       interval: 10s
@@ -104,6 +136,7 @@ services:
   # Publishes the same layout as tls-proxy, so both URLs play the same stream:
   #   https://<host>:8443/  clean       https://<host>:8444/  glitched
   #   https://<host>:8444/glitch/       control panel (change it while it runs)
+  #   https://<host>:8444/ebuplayer/    the EBU player, on the glitched stream
   #
   # Runs with the tls profile, it needs the same certificate:
   #   ./tls/generate-tls-cert.sh
@@ -120,6 +153,9 @@ services:
       - UPSTREAM_STREAM=http://live-origin:80
       - UPSTREAM_PLAYER=http://c2pa-player:80
       - STREAM_PREFIXES=/channel1/
+      # the EBU player under /ebuplayer/ (plus its absolute /assets/ URLs),
+      # same arrangement as in tls/nginx.conf; empty switches it off
+      - UPSTREAM_EBU_PLAYER=http://ebu-player:8080
       # start corrupting right away, all of this is changeable at runtime
       - GLITCH_ENABLED=${GLITCH_ENABLED:-true}
       # every Nth media segment per representation, 0 disables
@@ -140,6 +176,8 @@ services:
       live-origin:
         condition: service_healthy
       c2pa-player:
+        condition: service_started
+      ebu-player:
         condition: service_started
     healthcheck:
       test:

@@ -17,8 +17,16 @@
 # browser must reach the demo through CloudFront (https://), never through
 # these host ports directly. Point the distribution at this host and route:
 #
-#   default (/*)   -> PLAYER_PORT (8090)  c2pa-player, the static site
-#   /channel1/*    -> ORIGIN_PORT (80)    live-origin, MPD + CMAF segments
+#   default (/*)   -> PLAYER_PORT (8090)      c2pa-player, the static site
+#   /channel1/*    -> ORIGIN_PORT (80)        live-origin, MPD + CMAF segments
+#   /ebuplayer/*   -> EBU_PLAYER_PORT (8091)  ebu-player, the EBU player
+#   /assets/*      -> EBU_PLAYER_PORT (8091)  its bundle, wasm and trust lists
+#
+# The EBU player needs no path rewrite: its nginx answers any unknown path
+# with index.html, and the page hard-codes absolute /assets/ URLs - which is
+# why /assets/* is a behaviour of its own. Those files carry no content hash
+# but a week of immutable caching, so give /assets/* CachingDisabled as well
+# (or invalidate it after every image update).
 #
 # and give the damaged stream its own distribution (or its own host name)
 # pointing at GLITCH_PORT (8444), which serves player, stream and control
@@ -27,6 +35,7 @@
 #   https://<glitch-domain>/           player on the bit flipped stream
 #   https://<glitch-domain>/channel1/  the stream, every 5th segment damaged
 #   https://<glitch-domain>/glitch/    control panel
+#   https://<glitch-domain>/ebuplayer/ the EBU player on the bit flipped stream
 #
 # CloudFront cache behaviour for anything under /channel1/ and /glitch/:
 # caching disabled (CachingDisabled), forward the Range and Origin headers,
@@ -101,6 +110,30 @@ services:
     restart: unless-stopped
     networks:
       - default
+  # Second player on the same stream: the EBU / Security4Media Content
+  # Credentials player (video.js, validates with c2pa-web), as the prebuilt
+  # image from https://github.com/Security4Media/c2pa-video-player. Origin of
+  # the /ebuplayer/* and /assets/* behaviours, see the top of this file:
+  #   https://<domain>/ebuplayer/?video=https://<domain>/channel1/channel1.isml/.mpd&label=on
+  #
+  # The image is published for linux/amd64 only (fine on the usual x86 host;
+  # Apple Silicon runs it under emulation).
+  ebu-player:
+    image: ghcr.io/security4media/c2pa-player:manual-1788549573
+    platform: linux/amd64
+    ports:
+      # CloudFront origin for the /ebuplayer/* and /assets/* behaviours
+      - ${EBU_PLAYER_PORT:-8091}:8080
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1, not localhost: busybox wget tries ::1 first and the
+      # image's nginx listens on IPv4 only
+      test: wget -q -O /dev/null http://127.0.0.1:8080/
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - default
   # Same stream, but with damaged segments: a reverse proxy that flips bits in
   # CMAF media segments on their way to the player (every 5th segment of every
   # track by default).
@@ -119,6 +152,7 @@ services:
   #   https://<glitch-domain>/           player on the damaged stream
   #   https://<glitch-domain>/channel1/  the damaged stream
   #   https://<glitch-domain>/glitch/    control panel (change it while it runs)
+  #   https://<glitch-domain>/ebuplayer/ the EBU player on the damaged stream
   glitch-proxy:
     build: glitch-proxy
     ports:
@@ -131,6 +165,9 @@ services:
       - UPSTREAM_STREAM=http://live-origin:80
       - UPSTREAM_PLAYER=http://c2pa-player:80
       - STREAM_PREFIXES=/channel1/
+      # the EBU player under /ebuplayer/ (plus its absolute /assets/ URLs);
+      # empty switches it off
+      - UPSTREAM_EBU_PLAYER=http://ebu-player:8080
       # start corrupting right away, all of this is changeable at runtime
       - GLITCH_ENABLED=${GLITCH_ENABLED:-true}
       # every Nth media segment per representation, 0 disables
@@ -150,6 +187,8 @@ services:
       live-origin:
         condition: service_healthy
       c2pa-player:
+        condition: service_started
+      ebu-player:
         condition: service_started
     healthcheck:
       test:

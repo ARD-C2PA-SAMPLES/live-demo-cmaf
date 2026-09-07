@@ -291,6 +291,26 @@ Alternatively serve it from the working copy with
 `npm install && npm run build && npm run serve` (also on port 8090, so stop
 the container first).
 
+#### A second opinion: the EBU Content Credentials player
+The `ebu-player` service is a second validating player on the same stream:
+the [EBU / Security4Media player](https://github.com/Security4Media/c2pa-video-player)
+(video.js, validates with `@contentauth/c2pa-web`), pulled as the prebuilt
+image `ghcr.io/security4media/c2pa-player` - nothing is built locally. It
+takes the stream as `?video=`:
+
+**http://localhost:8091/?video=http://localhost/channel1/channel1.isml/.mpd&label=on**
+
+`?label=on` shows the authenticity label on the picture, `?trust=full-dev`
+swaps in the player's development trust list, `?consent=per-stream` /
+`per-run` change when it asks before showing invalid content - its README
+lists them all. The same localhost-only rule as above applies; on any other
+address open it through the TLS proxy under `/ebuplayer/` (next section).
+`EBU_PLAYER_PORT` in `.env` moves the direct port.
+
+> [!NOTE]
+> The image is published for `linux/amd64` only. On Apple Silicon, Docker
+> Desktop runs it under emulation, which is fine for a static site.
+
 Provenance can also be validated with the hosted
 [C2PA validation player](https://c2pa-unified-streaming.qualabs.dev/)
 (the stream URL must be reachable from the internet for that) or locally
@@ -350,8 +370,11 @@ mixed content and no CORS is involved:
 | --- | --- |
 | `https://<host>:8443/` | the player |
 | `https://<host>:8443/channel1/channel1.isml/.mpd` | the DASH stream |
+| `https://<host>:8443/ebuplayer/` | the EBU player, `?video=` takes the stream |
 
 **https://localhost:8443/?url=https://localhost:8443/channel1/channel1.isml/.mpd**
+
+**https://localhost:8443/ebuplayer/?video=https://localhost:8443/channel1/channel1.isml/.mpd&label=on**
 
 `?url=` also accepts a relative value - `?url=/channel1/channel1.isml/.mpd`
 loads the same stream from whatever address the page was opened on, which
@@ -391,6 +414,7 @@ but flips bits in the CMAF media segments on their way to the player.
 | --- | --- |
 | `https://<host>:8444/` | the player, on the damaged stream |
 | `https://<host>:8444/channel1/channel1.isml/.mpd` | the DASH stream, segments corrupted |
+| `https://<host>:8444/ebuplayer/` | the EBU player, on the damaged stream |
 | `https://<host>:8444/glitch/` | control panel, changes apply immediately |
 
 It comes up with the `tls` profile, because it uses the same certificate:

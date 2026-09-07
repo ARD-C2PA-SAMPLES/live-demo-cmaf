@@ -16,6 +16,7 @@ It publishes the same origin layout as tls/nginx.conf, one port further up:
     https://<host>:8444/channel1/....mpd        -> live-origin   (untouched)
     https://<host>:8444/channel1/...m4s         -> live-origin   (bit flipped)
     https://<host>:8444/glitch/                 -> control panel
+    https://<host>:8444/ebuplayer/, /assets/    -> ebu-player    (untouched, optional)
 
 So the clean stream on :8443 and the damaged one on :8444 are the same stream,
 same player, same certificate - only the segments differ.
@@ -61,6 +62,18 @@ UPSTREAM_PLAYER = os.environ.get("UPSTREAM_PLAYER", "http://c2pa-player:80")
 # path prefixes that are served from the stream upstream (comma separated)
 STREAM_PREFIXES = tuple(
     p.strip() for p in os.environ.get("STREAM_PREFIXES", "/channel1/").split(",") if p.strip()
+)
+# Optional second player (the EBU / Security4Media one), published under
+# EBU_PLAYER_PREFIX with the prefix stripped before the request goes upstream.
+# Its bundle is built for '/' and hard-codes absolute /assets/... URLs, so
+# those root paths (comma separated) go to it unchanged - the same arrangement
+# as in tls/nginx.conf. An empty UPSTREAM_EBU_PLAYER turns all of this off.
+UPSTREAM_EBU_PLAYER = os.environ.get("UPSTREAM_EBU_PLAYER", "").strip()
+EBU_PLAYER_PREFIX = "/" + os.environ.get("EBU_PLAYER_PREFIX", "/ebuplayer/").strip("/") + "/"
+EBU_PLAYER_ROOT_PREFIXES = tuple(
+    p.strip()
+    for p in os.environ.get("EBU_PLAYER_ROOT_PREFIXES", "/assets/").split(",")
+    if p.strip()
 )
 
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "443"))
@@ -416,7 +429,7 @@ def forward_request_headers(request, force_identity):
     return headers
 
 
-def forward_response_headers(upstream, drop_length=False, no_store=False):
+def forward_response_headers(upstream, drop_length=False, no_store=False, revalidate=False):
     headers = {}
     for name, value in upstream.headers.items():
         lname = name.lower()
@@ -424,6 +437,8 @@ def forward_response_headers(upstream, drop_length=False, no_store=False):
             continue
         # the body was rewritten, so the upstream framing no longer applies
         if drop_length and lname in ("content-length", "content-encoding"):
+            continue
+        if revalidate and lname == "expires":
             continue
         headers[name] = value
     # the player may live on another origin (:8443) while the stream comes
@@ -437,6 +452,11 @@ def forward_response_headers(upstream, drop_length=False, no_store=False):
         # same reasoning as tls/nginx.conf: the origin packages per request
         # and a cached manifest would stall playback on the live edge
         headers["Cache-Control"] = "no-store"
+    if revalidate:
+        # the EBU player's image marks its assets immutable for a week, but
+        # their names carry no content hash - a browser would keep the old
+        # bundle after an image update. Same override as in tls/nginx.conf.
+        headers["Cache-Control"] = "no-cache"
     return headers
 
 
@@ -447,8 +467,12 @@ def is_segment_response(path, content_type):
     return bool(re.search(r"\.(m4s|mp4|cmf[vat]|dash)$", path, re.I))
 
 
-async def proxy(request, upstream_base, corrupt):
-    url = upstream_base.rstrip("/") + str(request.rel_url)
+async def proxy(request, upstream_base, corrupt, strip="", revalidate=False):
+    rel_url = str(request.rel_url)  # path and query, still percent encoded
+    if strip and rel_url.startswith(strip):
+        # the upstream's / is published under a prefix: /ebuplayer/x?y -> /x?y
+        rel_url = "/" + rel_url[len(strip):]
+    url = upstream_base.rstrip("/") + rel_url
     headers = forward_request_headers(request, force_identity=corrupt)
     body = await request.read() if request.can_read_body else None
 
@@ -463,7 +487,7 @@ async def proxy(request, upstream_base, corrupt):
                 return web.Response(
                     status=upstream.status,
                     headers=forward_response_headers(
-                        upstream, drop_length=True, no_store=corrupt
+                        upstream, drop_length=True, no_store=corrupt, revalidate=revalidate
                     ),
                 )
 
@@ -477,7 +501,9 @@ async def proxy(request, upstream_base, corrupt):
                 # would only add latency
                 response = web.StreamResponse(
                     status=upstream.status,
-                    headers=forward_response_headers(upstream, no_store=corrupt),
+                    headers=forward_response_headers(
+                        upstream, no_store=corrupt, revalidate=revalidate
+                    ),
                 )
                 await response.prepare(request)
                 async for chunk in upstream.content.iter_chunked(64 * 1024):
@@ -790,6 +816,23 @@ async def route(request):
         )
     if request.path.startswith(STREAM_PREFIXES):
         return await proxy(request, UPSTREAM_STREAM, corrupt=True)
+    if UPSTREAM_EBU_PLAYER:
+        if request.path == EBU_PLAYER_PREFIX.rstrip("/"):
+            # without the trailing slash the request would fall through to the
+            # dash.js player (same as panel_redirect); the query carries the
+            # stream URL, so it travels along
+            query = f"?{request.query_string}" if request.query_string else ""
+            raise web.HTTPFound(EBU_PLAYER_PREFIX + query)
+        if request.path.startswith(EBU_PLAYER_PREFIX):
+            return await proxy(
+                request,
+                UPSTREAM_EBU_PLAYER,
+                corrupt=False,
+                strip=EBU_PLAYER_PREFIX,
+                revalidate=True,
+            )
+        if request.path.startswith(EBU_PLAYER_ROOT_PREFIXES):
+            return await proxy(request, UPSTREAM_EBU_PLAYER, corrupt=False, revalidate=True)
     return await proxy(request, UPSTREAM_PLAYER, corrupt=False)
 
 
@@ -837,10 +880,11 @@ def main():
         LOG.warning("/glitch/ is unauthenticated - set GLITCH_PASSWORD to lock it")
 
     LOG.info(
-        "glitch-proxy on :%d -> stream %s, player %s, config %s",
+        "glitch-proxy on :%d -> stream %s, player %s, ebu player %s, config %s",
         LISTEN_PORT,
         UPSTREAM_STREAM,
         UPSTREAM_PLAYER,
+        f"{UPSTREAM_EBU_PLAYER} under {EBU_PLAYER_PREFIX}" if UPSTREAM_EBU_PLAYER else "off",
         CFG.as_dict(),
     )
     web.run_app(build_app(), port=LISTEN_PORT, ssl_context=ssl_ctx, access_log=None)

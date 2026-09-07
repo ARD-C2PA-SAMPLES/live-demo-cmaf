@@ -9,6 +9,7 @@ segments on their way to the player, so the C2PA validation in
 browser
               :8444  glitch-proxy ->  same stream, every Nth segment damaged
                      /glitch/     ->  control panel
+                     /ebuplayer/  ->  the EBU player (optional, see below)
 ```
 
 Both ports serve the same player and the same origin layout, so the only
@@ -84,6 +85,9 @@ X-Glitch-Note:    why nothing was flipped, when X-Glitch is no-target
 | --- | --- | --- |
 | `UPSTREAM_STREAM` | `http://live-origin:80` | where `/channel1/` comes from |
 | `UPSTREAM_PLAYER` | `http://c2pa-player:80` | where everything else comes from |
+| `UPSTREAM_EBU_PLAYER` | empty (off) | the EBU / Security4Media player, published under `EBU_PLAYER_PREFIX` with the prefix stripped |
+| `EBU_PLAYER_PREFIX` | `/ebuplayer/` | where that player is published |
+| `EBU_PLAYER_ROOT_PREFIXES` | `/assets/` | root paths handed to it unchanged - its bundle hard-codes absolute `/assets/` URLs |
 | `STREAM_PREFIXES` | `/channel1/` | comma separated path prefixes served from the stream upstream |
 | `LISTEN_PORT` | `443` | port inside the container |
 | `TLS_CERT` / `TLS_KEY` | `/etc/glitch/certs/server-chain.pem`, `-key.pem` | missing cert falls back to plain HTTP |

@@ -80,8 +80,18 @@ if [ "$AIX_FILE" ]
       echo >&2 "         Contact support@unified-streaming.com to enable Trusted Media."
   else
     AIX_NAME=$(basename "$AIX_FILE")
-    mkdir -p /var/www/unified-origin/$PUB_POINT_NAME
-    cp "$AIX_FILE" "/var/www/unified-origin/$PUB_POINT_NAME/$AIX_NAME"
+    AIX_COPY="/var/www/unified-origin/$PUB_POINT_NAME/$AIX_NAME"
+    mkdir -p "/var/www/unified-origin/$PUB_POINT_NAME"
+    # This runs on every start of the container, not only the first one.
+    # busybox cp replaces an existing copy with a root owned 0600 file (the
+    # source is 0600), and the chown further down only runs when the
+    # publishing point is created - so after a restart (restart policy,
+    # compose stop/start) Apache could no longer open the document and every
+    # segment request failed with FMP4_IO_PERMISSION_DENIED. Hand the copy to
+    # Apache explicitly, every time.
+    cp "$AIX_FILE" "$AIX_COPY"
+    chown apache:apache "$AIX_COPY"
+    chmod 0600 "$AIX_COPY"
     PUB_POINT_OPTS="$PUB_POINT_OPTS --aix=$AIX_NAME"
     echo "Trusted Media: publishing point will be C2PA signed using $AIX_NAME"
   fi

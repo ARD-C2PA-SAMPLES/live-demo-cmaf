@@ -1,0 +1,26 @@
+[Unit]
+Description=OBS Headless Streaming
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=streaming
+Group=streaming
+
+Environment=HOME=/home/streaming
+Environment=XDG_CONFIG_HOME=/home/streaming/.config
+WorkingDirectory=/home/streaming
+
+ExecStartPre=/usr/bin/rm -rf /home/streaming/.config/obs-studio/.sentinel
+
+# Wait until RTMP ingest listens on port 1935
+ExecStartPre=/bin/sh -c 'until /usr/bin/nc -z 127.0.0.1 1935; do sleep 2; done'
+
+ExecStart=/usr/bin/xvfb-run -a --server-args="-screen 0 1920x1080x24" /usr/bin/obs --startstreaming
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

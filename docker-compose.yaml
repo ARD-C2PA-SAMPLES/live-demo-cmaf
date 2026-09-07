@@ -3,6 +3,9 @@ services:
     build: origin
     ports:
       - 80:80
+    # come back after a host or Docker restart like the rest of the stack;
+    # the proxies survive the wait for it, see tls/nginx.conf
+    restart: unless-stopped
     environment:
       - UspLicenseKey
       - PUB_POINT_NAME=channel1
@@ -112,11 +115,6 @@ services:
     depends_on:
       live-origin:
         condition: service_healthy
-      # nginx resolves the upstream names once, when it starts
-      c2pa-player:
-        condition: service_started
-      ebu-player:
-        condition: service_started
     healthcheck:
       test: wget -q --no-check-certificate -O /dev/null https://localhost/
       interval: 10s
@@ -176,8 +174,6 @@ services:
       live-origin:
         condition: service_healthy
       c2pa-player:
-        condition: service_started
-      ebu-player:
         condition: service_started
     healthcheck:
       test:

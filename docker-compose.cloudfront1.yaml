@@ -48,6 +48,8 @@ services:
     ports:
       # CloudFront origin for the /channel1/* behaviour
       - ${ORIGIN_PORT:-80}:80
+    # come back after a host or Docker restart like the rest of the stack
+    restart: unless-stopped
     environment:
       - UspLicenseKey
       - PUB_POINT_NAME=channel1
@@ -187,8 +189,6 @@ services:
       live-origin:
         condition: service_healthy
       c2pa-player:
-        condition: service_started
-      ebu-player:
         condition: service_started
     healthcheck:
       test:
